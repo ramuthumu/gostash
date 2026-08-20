@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .A.Title}}{{.A.Title}}{{else}}Article{{end}} · Read Later</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="reader">
+  <header class="reader-header">
+    <a class="back" href="/">← Reading list</a>
+    <span class="reader-actions">
+      <a class="orig" href="{{.A.URL}}" target="_blank" rel="noopener">View original ↗</a>
+    </span>
+  </header>
+
+  <!-- Reading controls bar -->
+  <div class="controls" id="controls">
+    <label class="ctrl">
+      <span>Font</span>
+      <select id="font-family">
+        <option value="serif">Serif</option>
+        <option value="athelas">Iowan / Palatino</option>
+        <option value="sans">Sans</option>
+        <option value="mono">Mono</option>
+      </select>
+    </label>
+    <div class="ctrl">
+      <span>Size</span>
+      <button id="font-smaller" title="Smaller">A−</button>
+      <span id="font-size-label" class="size-label">100%</span>
+      <button id="font-larger" title="Larger">A+</button>
+    </div>
+    <div class="ctrl">
+      <span>Spacing</span>
+      <button id="spacing-tight">Tight</button>
+      <button id="spacing-loose">Loose</button>
+    </div>
+    <div class="ctrl">
+      <span>Theme</span>
+      <button class="theme-btn" data-theme="light">Light</button>
+      <button class="theme-btn" data-theme="sepia">Sepia</button>
+      <button class="theme-btn" data-theme="dark">Dark</button>
+    </div>
+    <div class="ctrl right">
+      <button id="rsvp-open" class="primary">⚡ Speed read</button>
+    </div>
+  </div>
+
+  <article>
+    <h1 class="article-title">{{if .A.Title}}{{.A.Title}}{{else}}{{.A.URL}}{{end}}</h1>
+    {{if .A.Author}}<p class="byline">{{.A.Author}}</p>{{end}}
+    <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}</p>
+
+    <div class="article-content" id="article-content">
+      {{if .A.ContentHTML}}{{.A.ContentHTML | safe}}{{else}}
+        {{if .A.TextContent}}<pre class="fallback-text">{{.A.TextContent}}</pre>{{else}}
+          <p class="empty">No readable content could be extracted from this page.</p>
+        {{end}}
+      {{end}}
+    </div>
+  </article>
+
+  <!-- Hidden plain text source for the speed reader -->
+  <div id="rsvp-source" hidden>{{if .A.TextContent}}{{.A.TextContent}}{{else}}{{.A.Title}}{{end}}</div>
+
+  <footer class="reader-footer">
+    <form method="POST" action="/article/{{.A.ID}}/read" style="display:inline">
+      <button type="submit">{{if .A.Read}}Mark unread{{else}}Mark read{{end}}</button>
+    </form>
+    <form method="POST" action="/article/{{.A.ID}}/delete" style="display:inline"
+          onsubmit="return confirm('Delete this article?');">
+      <button type="submit" class="danger">Delete</button>
+    </form>
+  </footer>
+</div>
+
+<!-- Speed reader overlay -->
+<div class="rsvp-overlay" id="rsvp-overlay" hidden>
+  <div class="rsvp-box">
+    <div class="rsvp-word" id="rsvp-word"></div>
+    <div class="rsvp-progress"><div class="rsvp-bar" id="rsvp-bar"></div></div>
+    <div class="rsvp-controls">
+      <button id="rsvp-restart">↺ Restart</button>
+      <button id="rsvp-slower">− Slower</button>
+      <button id="rsvp-play" class="primary">▶ Play</button>
+      <button id="rsvp-faster">+ Faster</button>
+      <span class="rsvp-wpm"><span id="rsvp-wpm">350</span> WPM</span>
+      <button id="rsvp-close">✕ Close</button>
+    </div>
+    <input type="range" id="rsvp-slider" min="150" max="900" step="25" value="350">
+  </div>
+</div>
+
+<script src="/static/reader.js"></script>
+</body>
+</html>

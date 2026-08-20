@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read Later</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📑 Read Later</h1>
+  </header>
+
+  <section class="add">
+    <form method="POST" action="/">
+      <input type="text" name="url" placeholder="Paste an article URL to archive…" autofocus>
+      <button type="submit">Archive</button>
+    </form>
+    {{if .Error}}
+      <p class="error">⚠️ {{.Error}}</p>
+    {{end}}
+  </section>
+
+  <section class="bookmarklet">
+    <p>Drag this to your bookmarks bar to archive any page in one click:</p>
+    <p><a class="bookmarklet-link" href="{{.Bookmarklet}}">📑 Read Later</a></p>
+  </section>
+
+  <section class="list">
+    {{if not .Articles}}
+      <p class="empty">Nothing archived yet. Paste a URL above to get started.</p>
+    {{else}}
+      <ul>
+      {{range .Articles}}
+        <li class="{{if .Read}}read{{else}}unread{{end}}">
+          <a class="title" href="/article/{{.ID}}">{{if .Title}}{{.Title}}{{else}}{{.URL}}{{end}}</a>
+          <span class="meta">
+            <a class="orig" href="{{.URL}}" target="_blank" rel="noopener">original ↗</a>
+            · {{.ArchivedAt.Format "Jan 2, 2006 15:04"}}
+          </span>
+          {{if .Excerpt}}<p class="excerpt">{{.Excerpt}}</p>{{end}}
+          <form class="row-actions" method="POST" action="/article/{{.ID}}/read">
+            <button type="submit">{{if .Read}}Mark unread{{else}}Mark read{{end}}</button>
+          </form>
+          <form class="row-actions" method="POST" action="/article/{{.ID}}/delete"
+                onsubmit="return confirm('Delete this article?');">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+        </li>
+      {{end}}
+      </ul>
+    {{end}}
+  </section>
+</div>
+</body>
+</html>

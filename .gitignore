@@ -1,0 +1,22 @@
+# binaries
+/gostash
+*.exe
+
+# data
+/readlater.db
+/readlater.db-*
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# env
+.env
+.env.*
+
+# os
+.DS_Store
+
+# editor
+.vscode/
+.idea/
