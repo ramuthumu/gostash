@@ -7,6 +7,10 @@ on:
 
 env:
   IMAGE: ghcr.io/ramuthumu/gostash
+  # The server is amd64 (Intel QSV). To also build arm64, add a second
+  # matrix value (runs: ubuntu-24.04-arm) and merge with a manifest job,
+  # OR set platforms: linux/amd64,linux/arm64 (slower — QEMU emulates arm64).
+  PLATFORMS: linux/amd64
 
 jobs:
   build:
@@ -16,9 +20,6 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -38,16 +39,15 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,format=short
-            type=sha,prefix={{date 'YYYYMMDD'}}-,format=short
           labels: |
             org.opencontainers.image.title=gostash
             org.opencontainers.image.description=Self-hosted read-it-later article archiver
 
-      - name: Build and push (amd64 + arm64)
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -55,4 +55,4 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Output digest
-        run: echo "Pushed ${{ env.IMAGE }}@${{ steps.meta.outputs.version }}"
+        run: echo "Pushed ${{ env.IMAGE }}:latest (${{ steps.meta.outputs.version }})"
