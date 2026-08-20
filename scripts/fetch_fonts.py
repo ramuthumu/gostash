@@ -18,21 +18,13 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
 # (key, css2 family spec, local filename prefix)
 # Use weight ranges (..) for variable fonts; explicit instances for static ones.
 FONTS = [
-    # --- Serifs (the stars for long-form reading) ---
-    ("merriweather", "Merriweather:wght@400..700",                 "merriweather"),
-    ("sourceserif",  "Source+Serif+4:opsz,wght@8..60,400..700",    "sourceserif"),
-    ("literata",     "Literata:opsz,wght@7..72,400..700",          "literata"),
-    ("newsreader",   "Newsreader:opsz,wght@6..72,400..700",        "newsreader"),
-    ("spectral",     "Spectral:wght@400;600;700",               "spectral"),
-    ("crimsonpro",   "Crimson+Pro:wght@400..700",                  "crimsonpro"),
-    ("ebgaramond",   "EB+Garamond:wght@400..700",               "ebgaramond"),
-    ("lora",         "Lora:wght@400..700",                         "lora"),
+    # --- Curated minimal set ---
+    # Serifs for long-form reading
     ("vollkorn",     "Vollkorn:wght@400..700",                    "vollkorn"),
-    # --- Sans (sought-after) ---
-    ("opensans",     "Open+Sans:wght@400..700",                    "opensans"),
+    ("newsreader",   "Newsreader:opsz,wght@6..72,400..700",        "newsreader"),
+    ("ebgaramond",   "EB+Garamond:wght@400..700",               "ebgaramond"),
+    # Sans
     ("inter",        "Inter:wght@400..700",                        "inter"),
-    ("ibmplexsans",  "IBM+Plex+Sans:wght@400..700",              "ibmplexsans"),
-    ("firasans",     "Fira+Sans:wght@400;600;700",               "firasans"),
 ]
 
 KEEP = {"latin", "latin-ext"}

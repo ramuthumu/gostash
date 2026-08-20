@@ -15,22 +15,10 @@
 
   // ---------- Font families ----------
   var FONTS = {
-    serif:        'Georgia, "Times New Roman", serif',
-    athelas:      '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif',
-    newsreader:   '"Newsreader", Georgia, serif',
-    spectral:     '"Spectral", Georgia, serif',
-    crimsonpro:   '"Crimson Pro", Georgia, serif',
-    ebgaramond:   '"EB Garamond", Georgia, serif',
-    lora:         '"Lora", Georgia, serif',
     vollkorn:     '"Vollkorn", Georgia, serif',
-    merriweather: '"Merriweather", Georgia, serif',
-    sourceserif:  '"Source Serif 4", Georgia, serif',
-    literata:     '"Literata", Georgia, serif',
-    sans:         '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
-    ibmplexsans:  '"IBM Plex Sans", -apple-system, Arial, sans-serif',
-    firasans:     '"Fira Sans", -apple-system, Arial, sans-serif',
+    newsreader:   '"Newsreader", Georgia, serif',
+    ebgaramond:   '"EB Garamond", Georgia, serif',
     inter:        '"Inter", -apple-system, Arial, sans-serif',
-    opensans:     '"Open Sans", -apple-system, Arial, sans-serif',
     mono:         'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
   };
 
@@ -38,7 +26,7 @@
   var sizeLabel = document.getElementById("font-size-label");
 
   function applyPrefs() {
-    var fam = prefs.font || "serif";
+    var fam = prefs.font || "vollkorn";
     document.getElementById("font-family").value = fam;
     content.style.fontFamily = FONTS[fam] || FONTS.serif;
 
