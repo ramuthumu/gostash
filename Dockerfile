@@ -1,0 +1,22 @@
+# --- build stage ---
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# static, stripped binary for a tiny image
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/gostash .
+
+# --- runtime stage ---
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata && \
+    adduser -D -h /data app
+WORKDIR /data
+USER app
+COPY --from=build /out/gostash /usr/local/bin/gostash
+
+ENV READLATER_ADDR=:8090
+ENV READLATER_DATA=/data
+EXPOSE 8090
+VOLUME ["/data"]
+ENTRYPOINT ["gostash"]

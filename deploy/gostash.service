@@ -1,0 +1,23 @@
+[Unit]
+Description=gostash — read-it-later article archiver
+After=network.target
+
+[Service]
+Type=simple
+# Adjust User/Group and READLATER_DATA to suit your server.
+User=gostash
+Group=gostash
+Environment=READLATER_ADDR=127.0.0.1:8090
+Environment=READLATER_DATA=/var/lib/gostash
+ExecStart=/usr/local/bin/gostash
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

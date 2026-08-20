@@ -1,0 +1,14 @@
+# gostash — Caddy reverse proxy example
+#
+# Install Caddy (https://caddyserver.com/docs/install), point your domain's
+# DNS A/AAAA record at this server, drop this at /etc/caddy/Caddyfile, then:
+#   sudo systemctl reload caddy
+# Caddy gets and renews the HTTPS certificate automatically.
+
+your-domain.example.com {
+	encode zstd gzip
+	request_body {
+		max_size 25MB
+	}
+	reverse_proxy 127.0.0.1:8090
+}
