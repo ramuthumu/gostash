@@ -127,19 +127,30 @@
     return text.split(" ").map(function (w) { return w.trim(); }).filter(Boolean);
   }
 
-  function focalIndex(word) {
-    // Optimal Recognition Point: ~1/3 into the word (clamped)
-    var n = word.length;
+  // Grapheme segmentation so complex scripts (Telugu, Hindi, etc.) are split on
+  // user-perceived characters, not UTF-16 code units — prevents vowel signs/matras
+  // detaching from their consonant and rendering as dotted circles.
+  var segmenter = null;
+  try { segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" }); } catch (e) {}
+  function graphemes(word) {
+    if (segmenter) return Array.from(segmenter.segment(word), function (s) { return s.segment; });
+    return Array.from(word); // fallback: code points (handles surrogate pairs)
+  }
+
+  function focalIndex(glyphs) {
+    // Optimal Recognition Point: ~1/3 into the word (clamped), in graphemes
+    var n = glyphs.length;
     if (n <= 1) return 0;
     var p = Math.floor(n / 3);
     return Math.min(p, 4);
   }
 
   function renderWord(word) {
-    var p = focalIndex(word);
-    var left = word.slice(0, p);
-    var mid = word.slice(p, p + 1);
-    var right = word.slice(p + 1);
+    var g = graphemes(word);
+    var p = Math.min(focalIndex(g), g.length);
+    var left = g.slice(0, p).join("");
+    var mid = g.slice(p, p + 1).join("") || "";
+    var right = g.slice(p + 1).join("");
     // Use an actual non-breaking space char so esc() won't mangle it into "&nbsp;".
     var pad = "\u00a0".repeat(Math.max(0, 5 - p));
     wordEl.innerHTML =
