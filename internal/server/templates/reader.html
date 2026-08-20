@@ -69,7 +69,7 @@
     <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}</p>
 
     <div class="article-content" id="article-content">
-      {{if .A.ContentHTML}}{{.A.ContentHTML | safe}}{{else}}
+      {{if .A.ContentHTML}}{{proxyImgs .A.ContentHTML}}{{else}}
         {{if .A.TextContent}}<pre class="fallback-text">{{.A.TextContent}}</pre>{{else}}
           <p class="empty">No readable content could be extracted from this page.</p>
         {{end}}
