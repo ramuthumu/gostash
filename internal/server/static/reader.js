@@ -230,6 +230,23 @@
     else if (e.key === "ArrowRight") { setWpm(wpm + 50); }
   });
 
+  // ---------- Auto-hide controls while reading ----------
+  var controlsEl = document.getElementById("controls");
+  var lastScroll = window.scrollY || 0;
+  window.addEventListener("scroll", function () {
+    var y = window.scrollY || 0;
+    if (y > lastScroll + 4 && y > 120) {
+      controlsEl.classList.add("collapsed");   // scrolling down into the article
+    } else if (y < lastScroll - 4) {
+      controlsEl.classList.remove("collapsed"); // scrolling up -> bring back
+    }
+    lastScroll = y;
+  }, { passive: true });
+  // also reveal when the pointer returns to the very top
+  document.addEventListener("mousemove", function (e) {
+    if (e.clientY < 56) controlsEl.classList.remove("collapsed");
+  });
+
   // ---------- init ----------
   applyPrefs();
 })();
