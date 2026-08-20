@@ -76,7 +76,7 @@ header h1 { margin: 0 0 1.5rem; font-size: 1.6rem; }
 .byline { color: var(--muted); margin: 0; font-style: italic; }
 .source { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 1.5rem; }
 
-.article-content { font-size: 1.15rem; line-height: 1.75; }
+.article-content { font-size: 1.25rem; line-height: 1.75; }
 .article-content p { margin: 0 0 1.1rem; }
 .article-content h2 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
 .article-content h3 { font-size: 1.25rem; margin: 1.5rem 0 0.5rem; }
@@ -130,7 +130,7 @@ header h1 { margin: 0 0 1.5rem; font-size: 1.6rem; }
   background: var(--card); color: var(--fg); font-size: 0.85rem; cursor: pointer;
 }
 .controls .size-label { min-width: 3rem; text-align: center; color: var(--fg); }
-.theme-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.theme-btn.active, .width-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* ---------- Themes ---------- */
 body.theme-light { --bg: #fafaf7; --fg: #1a1a1a; --muted: #6b6b6b; --card: #ffffff; --border: #e3e3dd; }

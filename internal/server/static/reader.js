@@ -22,22 +22,36 @@
     mono:         'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
   };
 
+  // Base body size in rem. Some fonts (Vollkorn, EB Garamond) have a small
+  // x-height and read tiny at the same size, so we scale them up per font.
+  var BASE_REM = 1.25;
+  var FONT_SCALE = {
+    vollkorn: 1.18,
+    ebgaramond: 1.14,
+    newsreader: 1.0,
+    inter: 0.98,
+    mono: 0.92
+  };
+  var WIDTHS = [540, 760, 1000, 1200];
+
   var content = document.getElementById("article-content");
   var sizeLabel = document.getElementById("font-size-label");
 
   function applyPrefs() {
     var fam = prefs.font || "vollkorn";
     document.getElementById("font-family").value = fam;
-    content.style.fontFamily = FONTS[fam] || FONTS.serif;
+    content.style.fontFamily = FONTS[fam] || FONTS.vollkorn;
 
     var size = prefs.size || 100;
+    var scale = FONT_SCALE[fam] != null ? FONT_SCALE[fam] : 1;
+    content.style.fontSize = (BASE_REM * size / 100 * scale).toFixed(3) + "rem";
     sizeLabel.textContent = size + "%";
-    content.style.fontSize = size + "%";
 
     var spacing = prefs.spacing || 1.75;
     content.style.lineHeight = String(spacing);
 
     setTheme(prefs.theme || "light");
+    setWidth(prefs.width || 760);
   }
 
   // ---------- Controls ----------
@@ -74,6 +88,24 @@
       b.classList.toggle("active", b.dataset.theme === theme);
     });
   }
+
+  // ---------- Width (column width) ----------
+  var readerEl = document.querySelector(".reader");
+  var widthBtns = document.querySelectorAll(".width-btn");
+
+  function setWidth(px) {
+    readerEl.style.maxWidth = px + "px";
+    widthBtns.forEach(function (b) {
+      b.classList.toggle("active", parseInt(b.dataset.width, 10) === px);
+    });
+  }
+  widthBtns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      prefs.width = parseInt(btn.dataset.width, 10);
+      savePrefs();
+      setWidth(prefs.width);
+    });
+  });
 
   // ---------- Speed reader (RSVP) ----------
   var overlay = document.getElementById("rsvp-overlay");
