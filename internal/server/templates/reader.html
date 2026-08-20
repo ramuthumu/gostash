@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .A.Title}}{{.A.Title}}{{else}}Article{{end}} · Read Later</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
 </head>
 <body>
 <div class="reader">
@@ -20,10 +21,21 @@
     <label class="ctrl">
       <span>Font</span>
       <select id="font-family">
-        <option value="serif">Serif</option>
-        <option value="athelas">Iowan / Palatino</option>
-        <option value="sans">Sans</option>
-        <option value="mono">Mono</option>
+        <optgroup label="Serif">
+          <option value="serif">Georgia (system)</option>
+          <option value="athelas">Iowan / Palatino (system)</option>
+          <option value="merriweather">Merriweather</option>
+          <option value="sourceserif">Source Serif 4</option>
+          <option value="literata">Literata</option>
+        </optgroup>
+        <optgroup label="Sans">
+          <option value="sans">System Sans</option>
+          <option value="opensans">Open Sans</option>
+          <option value="inter">Inter</option>
+        </optgroup>
+        <optgroup label="Mono">
+          <option value="mono">System Mono</option>
+        </optgroup>
       </select>
     </label>
     <div class="ctrl">

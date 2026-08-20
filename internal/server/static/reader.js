@@ -15,10 +15,15 @@
 
   // ---------- Font families ----------
   var FONTS = {
-    serif:   'Georgia, "Times New Roman", serif',
-    athelas: '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif',
-    sans:    '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
-    mono:    'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+    serif:        'Georgia, "Times New Roman", serif',
+    athelas:      '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif',
+    merriweather: '"Merriweather", Georgia, serif',
+    sourceserif:  '"Source Serif 4", Georgia, serif',
+    literata:     '"Literata", Georgia, serif',
+    sans:         '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
+    opensans:     '"Open Sans", -apple-system, Arial, sans-serif',
+    inter:        '"Inter", -apple-system, Arial, sans-serif',
+    mono:         'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
   };
 
   var content = document.getElementById("article-content");
