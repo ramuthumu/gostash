@@ -11,6 +11,7 @@ under the SIL Open Font License 1.1 (see OFL.txt).
 - Crimson Pro — Copyright (c) 2015-2023, Steve Matteson.
 - EB Garamond — Copyright (c) 2017-2023, Georg Duffner & contributors.
 - Lora — Copyright (c) 2011-2023, Cyreal.
+- Vollkorn — Copyright (c) 2010-2023, Fritz Seifert.
 - Open Sans — Copyright (c) 2020, The Open Sans Project Authors.
 - Inter — Copyright (c) 2016-2023, The Inter Project Authors (Rasmus Andersson).
 - IBM Plex Sans — Copyright (c) 2017-2023, IBM.

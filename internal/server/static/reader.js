@@ -22,6 +22,7 @@
     crimsonpro:   '"Crimson Pro", Georgia, serif',
     ebgaramond:   '"EB Garamond", Georgia, serif',
     lora:         '"Lora", Georgia, serif',
+    vollkorn:     '"Vollkorn", Georgia, serif',
     merriweather: '"Merriweather", Georgia, serif',
     sourceserif:  '"Source Serif 4", Georgia, serif',
     literata:     '"Literata", Georgia, serif',

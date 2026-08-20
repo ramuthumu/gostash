@@ -27,6 +27,7 @@ FONTS = [
     ("crimsonpro",   "Crimson+Pro:wght@400..700",                  "crimsonpro"),
     ("ebgaramond",   "EB+Garamond:wght@400..700",               "ebgaramond"),
     ("lora",         "Lora:wght@400..700",                         "lora"),
+    ("vollkorn",     "Vollkorn:wght@400..700",                    "vollkorn"),
     # --- Sans (sought-after) ---
     ("opensans",     "Open+Sans:wght@400..700",                    "opensans"),
     ("inter",        "Inter:wght@400..700",                        "inter"),
