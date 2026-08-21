@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .A.Title}}{{.A.Title}}{{else}}Article{{end}} · Read Later</title>
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <script>
@@ -12,8 +13,11 @@
 <script src="/static/theme.js" defer></script>
 </head>
 <body>
-<div class="reader">
+<div class="reader" data-article-id="{{.A.ID}}">
  <div class="reader-top">
+  <div class="reading-progress" id="reading-progress" aria-hidden="true">
+    <div class="reading-progress-fill" id="reading-progress-fill"></div>
+  </div>
   <header class="reader-header">
     <a class="back" href="/">← Reading list</a>
     <span class="reader-actions">
@@ -71,7 +75,7 @@
   <article>
     <h1 class="article-title">{{if .A.Title}}{{.A.Title}}{{else}}{{.A.URL}}{{end}}</h1>
     {{if .A.Author}}<p class="byline">{{.A.Author}}</p>{{end}}
-    <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}</p>
+    <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}{{if .A.WordCount}} · <span class="reading-time">{{.A.ReadingTimeMinutes}} min read</span> · <span class="word-count">{{.A.WordCount}} words</span>{{end}}</p>
 
     <div class="article-content" id="article-content">
       {{if .A.ContentHTML}}{{proxyImgs .A.ContentHTML}}{{else}}
@@ -114,5 +118,12 @@
 </div>
 
 <script src="/static/reader.js" defer></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function() {});
+  });
+}
+</script>
 </body>
 </html>

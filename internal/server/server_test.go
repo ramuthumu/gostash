@@ -109,3 +109,22 @@ func TestProxyImgsPreservesSafeStructure(t *testing.T) {
 		t.Errorf("unexpected onerror in output: %q", out)
 	}
 }
+
+func TestPWAStaticFilesEmbedded(t *testing.T) {
+	manifest, err := staticFS.ReadFile("static/manifest.webmanifest")
+	if err != nil {
+		t.Fatalf("failed to read static/manifest.webmanifest: %v", err)
+	}
+	if !strings.Contains(string(manifest), "share_target") {
+		t.Errorf("manifest missing share_target: %s", string(manifest))
+	}
+
+	sw, err := staticFS.ReadFile("static/sw.js")
+	if err != nil {
+		t.Fatalf("failed to read static/sw.js: %v", err)
+	}
+	if !strings.Contains(string(sw), "CACHE_NAME") {
+		t.Errorf("sw.js missing CACHE_NAME: %s", string(sw))
+	}
+}
+

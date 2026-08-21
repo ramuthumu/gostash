@@ -52,9 +52,50 @@ header h1 { margin: 0 0 1.5rem; font-size: 1.6rem; }
 .add button:hover { opacity: 0.9; }
 .error { color: var(--danger); font-size: 0.95rem; }
 
+.controls-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 0.75rem; margin: 1.25rem 0 1.25rem;
+}
+.filter-tabs { display: flex; align-items: center; gap: 0.35rem; }
+.filter-tabs .tab {
+  display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem;
+  border-radius: 6px; color: var(--muted); font-size: 0.9rem; font-weight: 500;
+  text-decoration: none; background: none; border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.filter-tabs .tab:hover { color: var(--fg); background: var(--card); }
+.filter-tabs .tab.active {
+  color: var(--accent); background: var(--card); border-color: var(--border); font-weight: 600;
+}
+.filter-tabs .badge {
+  background: var(--border); color: var(--fg); font-size: 0.75rem;
+  padding: 0.1rem 0.4rem; border-radius: 999px; font-weight: 500;
+}
+.filter-tabs .tab.active .badge { background: var(--accent); color: #fff; }
+
+.search-form { display: flex; align-items: center; gap: 0.35rem; position: relative; }
+.search-form input[type="search"] {
+  padding: 0.35rem 0.65rem; font-size: 0.88rem; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--card); color: var(--fg); width: 200px;
+  transition: width 0.2s ease, border-color 0.2s ease;
+}
+.search-form input[type="search"]:focus { outline: none; border-color: var(--accent); width: 240px; }
+.search-form button {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.3rem 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--fg);
+}
+.search-form button:hover { border-color: var(--accent); }
+.search-form .clear-search {
+  color: var(--muted); font-size: 0.85rem; text-decoration: none; padding: 0 0.3rem;
+}
+.search-form .clear-search:hover { color: var(--danger); }
+
 .bookmarklet {
   background: #fff8e6; border: 1px dashed #e0c97a; border-radius: 8px;
-  padding: 0.75rem 1rem; margin-bottom: 2rem; font-size: 0.9rem; color: #5a4a1a;
+  padding: 0.75rem 1rem; margin-top: 2rem; margin-bottom: 2rem; font-size: 0.9rem; color: #5a4a1a;
+}
+body.theme-dark .bookmarklet {
+  background: #2b2518; border-color: #5c4e28; color: #d4b568;
 }
 .bookmarklet p { margin: 0.2rem 0; }
 .bookmarklet-link {
@@ -87,9 +128,26 @@ header h1 { margin: 0 0 1.5rem; font-size: 1.6rem; }
   position: sticky; top: 0; z-index: 30; background: var(--bg);
   padding-top: 0.25rem;
 }
+.reading-progress {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: transparent; overflow: hidden;
+}
+.reading-progress-fill {
+  height: 100%; width: 0%; background: var(--accent);
+  transition: width 0.1s linear;
+}
+.reader-toast {
+  position: fixed; bottom: 2rem; right: 2rem; background: var(--card);
+  color: var(--fg); border: 1px solid var(--border); padding: 0.5rem 1rem;
+  border-radius: 8px; font-size: 0.85rem; font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15); opacity: 0;
+  transform: translateY(10px); transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 100; pointer-events: none;
+}
+.reader-toast.visible { opacity: 1; transform: translateY(0); }
 .reader-header {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 0; padding: 0 0 0.5rem; font-size: 0.9rem;
+  margin-bottom: 0; padding: 0.25rem 0 0.5rem; font-size: 0.9rem;
   border-bottom: 1px solid var(--border);
 }
 .reader-actions { display: flex; align-items: center; gap: 0.75rem; }

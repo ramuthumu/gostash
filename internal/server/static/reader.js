@@ -290,6 +290,68 @@
     setControlsOpen(false);
   });
 
+  // ---------- Scroll progress & position persistence ----------
+  var progressFill = document.getElementById("reading-progress-fill");
+  var readerContainer = document.querySelector(".reader");
+  var articleId = readerContainer ? readerContainer.dataset.articleId : null;
+  var SCROLL_KEY_PREFIX = "readlater.scroll.";
+
+  function updateReadingProgress() {
+    var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    var y = window.scrollY || 0;
+    var pct = docHeight > 0 ? Math.min(100, Math.max(0, (y / docHeight) * 100)) : 0;
+    if (progressFill) {
+      progressFill.style.width = pct + "%";
+    }
+    if (articleId && docHeight > 0) {
+      try {
+        localStorage.setItem(SCROLL_KEY_PREFIX + articleId, JSON.stringify({
+          y: Math.round(y),
+          pct: Math.round(pct),
+          updatedAt: Date.now()
+        }));
+      } catch (e) {}
+    }
+  }
+
+  var scrollTimer = null;
+  window.addEventListener("scroll", function () {
+    if (!scrollTimer) {
+      scrollTimer = requestAnimationFrame(function () {
+        updateReadingProgress();
+        scrollTimer = null;
+      });
+    }
+  }, { passive: true });
+
+  function restoreScrollPosition() {
+    if (!articleId) return;
+    try {
+      var saved = JSON.parse(localStorage.getItem(SCROLL_KEY_PREFIX + articleId));
+      if (saved && saved.y > 120 && saved.pct < 98) {
+        requestAnimationFrame(function () {
+          window.scrollTo({ top: saved.y, behavior: "instant" });
+          updateReadingProgress();
+          showToast("Resumed from " + saved.pct + "%");
+        });
+      }
+    } catch (e) {}
+  }
+
+  function showToast(msg) {
+    var toast = document.createElement("div");
+    toast.className = "reader-toast";
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(function () { toast.classList.add("visible"); }, 50);
+    setTimeout(function () {
+      toast.classList.remove("visible");
+      setTimeout(function () { toast.remove(); }, 300);
+    }, 2400);
+  }
+
   // ---------- init ----------
   applyPrefs();
+  restoreScrollPosition();
+  updateReadingProgress();
 })();

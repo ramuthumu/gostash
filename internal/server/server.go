@@ -53,6 +53,28 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("POST /article/{id}/read", s.handleToggleRead)
 	mux.HandleFunc("POST /article/{id}/delete", s.handleDelete)
 
+	mux.HandleFunc("GET /manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		data, err := staticFS.ReadFile("static/manifest.webmanifest")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(data)
+	})
+	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Service-Worker-Allowed", "/")
+		data, err := staticFS.ReadFile("static/sw.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(data)
+	})
+
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
@@ -105,13 +127,26 @@ func logRequests(h http.Handler) http.Handler {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	articles, err := s.store.List()
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	filter := strings.TrimSpace(r.URL.Query().Get("filter"))
+	if filter == "" {
+		filter = db.FilterUnread
+	}
+	counts, _ := s.store.Counts()
+	articles, err := s.store.List(filter, q)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.render(w, "list.html", map[string]any{
 		"Articles":    articles,
+		"Counts":      counts,
+		"Filter":      filter,
+		"Query":       q,
 		"Bookmarklet": bookmarkletURL(r),
 	})
 }
@@ -125,9 +160,12 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	id, err := s.archiveURL(url)
 	if err != nil {
 		log.Printf("archive error: %v", err)
-		articles, _ := s.store.List()
+		counts, _ := s.store.Counts()
+		articles, _ := s.store.List(db.FilterUnread, "")
 		s.render(w, "list.html", map[string]any{
 			"Articles":    articles,
+			"Counts":      counts,
+			"Filter":      db.FilterUnread,
 			"Error":       err.Error(),
 			"Bookmarklet": bookmarkletURL(r),
 		})
@@ -137,14 +175,26 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSaveBookmarklet(w http.ResponseWriter, r *http.Request) {
-	url := strings.TrimSpace(r.URL.Query().Get("url"))
-	if url == "" {
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if rawURL == "" {
+		rawURL = strings.TrimSpace(r.URL.Query().Get("text"))
+	}
+	// If text contains a URL among other shared text, extract it
+	if strings.Contains(rawURL, "http://") || strings.Contains(rawURL, "https://") {
+		for _, part := range strings.Fields(rawURL) {
+			if strings.HasPrefix(part, "http://") || strings.HasPrefix(part, "https://") {
+				rawURL = part
+				break
+			}
+		}
+	}
+	if rawURL == "" {
 		http.Error(w, "missing url", http.StatusBadRequest)
 		return
 	}
-	id, err := s.archiveURL(url)
+	id, err := s.archiveURL(rawURL)
 	if err != nil {
-		log.Printf("bookmarklet archive error: %v", err)
+		log.Printf("save archive error: %v", err)
 		http.Error(w, "Could not archive: "+err.Error(), http.StatusBadGateway)
 		return
 	}

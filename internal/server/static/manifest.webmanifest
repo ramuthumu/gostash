@@ -1,0 +1,27 @@
+{
+  "name": "GoStash - Read Later",
+  "short_name": "GoStash",
+  "description": "Self-hosted read-it-later article archiver",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fafaf7",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/save",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

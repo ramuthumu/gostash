@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Read Later</title>
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/static/style.css">
 <script>
 (function(){try{var p=JSON.parse(localStorage.getItem("readlater.reader.prefs"))||{};if(p.theme)document.documentElement.className="theme-"+p.theme;}catch(e){}})();
@@ -27,14 +28,38 @@
     {{end}}
   </section>
 
-  <section class="bookmarklet">
-    <p>Drag this to your bookmarks bar to archive any page in one click:</p>
-    <p>{{.Bookmarklet}}</p>
+  <section class="controls-row">
+    <nav class="filter-tabs">
+      <a href="/?filter=unread{{if .Query}}&q={{.Query}}{{end}}" class="tab {{if eq .Filter "unread"}}active{{end}}">
+        Unread <span class="badge">{{.Counts.Unread}}</span>
+      </a>
+      <a href="/?filter=archive{{if .Query}}&q={{.Query}}{{end}}" class="tab {{if eq .Filter "archive"}}active{{end}}">
+        Archive <span class="badge">{{.Counts.Archive}}</span>
+      </a>
+      <a href="/?filter=all{{if .Query}}&q={{.Query}}{{end}}" class="tab {{if eq .Filter "all"}}active{{end}}">
+        All <span class="badge">{{.Counts.Total}}</span>
+      </a>
+    </nav>
+
+    <form method="GET" action="/" class="search-form">
+      <input type="hidden" name="filter" value="{{.Filter}}">
+      <input type="search" name="q" value="{{.Query}}" placeholder="Search articles…" autocomplete="off">
+      <button type="submit" aria-label="Search">🔍</button>
+      {{if .Query}}
+        <a href="/?filter={{.Filter}}" class="clear-search" title="Clear search">✕</a>
+      {{end}}
+    </form>
   </section>
 
   <section class="list">
     {{if not .Articles}}
-      <p class="empty">Nothing archived yet. Paste a URL above to get started.</p>
+      {{if .Query}}
+        <p class="empty">No articles found matching "{{.Query}}". <a href="/?filter={{.Filter}}">Clear search</a></p>
+      {{else if eq .Filter "archive"}}
+        <p class="empty">No archived articles yet.</p>
+      {{else}}
+        <p class="empty">Nothing in unread. Paste a URL above to get started.</p>
+      {{end}}
     {{else}}
       <ul>
       {{range .Articles}}
@@ -42,7 +67,11 @@
           <a class="title" href="/article/{{.ID}}">{{if .Title}}{{.Title}}{{else}}{{.URL}}{{end}}</a>
           <span class="meta">
             <a class="orig" href="{{.URL}}" target="_blank" rel="noopener">original ↗</a>
-            · {{.ArchivedAt.Format "Jan 2, 2006 15:04"}}
+            · {{.ArchivedAt.Format "Jan 2, 2006"}}
+            {{if .WordCount}}
+              · <span class="reading-time">{{.ReadingTimeMinutes}} min read</span>
+              · <span class="word-count">{{.WordCount}} words</span>
+            {{end}}
           </span>
           {{if .Excerpt}}<p class="excerpt">{{.Excerpt}}</p>{{end}}
           <form class="row-actions" method="POST" action="/article/{{.ID}}/read">
@@ -57,6 +86,19 @@
       </ul>
     {{end}}
   </section>
+
+  <section class="bookmarklet">
+    <p>Drag this to your bookmarks bar to archive any page in one click:</p>
+    <p>{{.Bookmarklet}}</p>
+  </section>
 </div>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function() {});
+  });
+}
+</script>
 </body>
 </html>
