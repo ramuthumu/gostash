@@ -56,14 +56,3 @@ jobs:
 
       - name: Output digest
         run: echo "Pushed ${{ env.IMAGE }}:latest (${{ steps.meta.outputs.version }})"
-
-      - name: Trigger deployment via Watchtower webhook
-        env:
-          WATCHTOWER_TOKEN: ${{ secrets.WATCHTOWER_TOKEN }}
-        if: ${{ env.WATCHTOWER_TOKEN != '' }}
-        run: |
-          echo "Triggering Watchtower to update gostash on server..."
-          curl -fsS -X POST \
-            -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" \
-            -H "Authorization: Bearer $WATCHTOWER_TOKEN" \
-            "https://watchtower.telugumeme.com/v1/update?container=gostash"
