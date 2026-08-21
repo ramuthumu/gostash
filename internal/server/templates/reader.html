@@ -22,10 +22,20 @@
     <a class="back" href="/">← Reading list</a>
     <span class="reader-actions">
       <a class="orig" href="{{.A.URL}}" target="_blank" rel="noopener">View original ↗</a>
+      <button id="toc-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Table of contents" aria-label="Table of contents" hidden>📑 Outline</button>
       <button id="rsvp-open" type="button" title="Speed read (RSVP)" aria-label="Speed read">⚡ Speed read</button>
       <button id="font-settings-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Font settings" aria-label="Font settings">Aa</button>
     </span>
   </header>
+
+  <!-- Table of contents dropdown (hidden by default) -->
+  <nav class="toc-menu collapsed" id="toc-menu" aria-label="Table of contents">
+    <div class="toc-header">
+      <span class="toc-title">Table of Contents</span>
+      <button id="toc-close" type="button" aria-label="Close outline">✕</button>
+    </div>
+    <ul class="toc-list" id="toc-list"></ul>
+  </nav>
 
   <!-- Reading controls bar (hidden until the Aa button is clicked) -->
   <div class="controls collapsed" id="controls">
