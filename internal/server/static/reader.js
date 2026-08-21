@@ -388,12 +388,9 @@
         setTocOpen(false);
         var target = document.getElementById(h.id);
         if (target) {
-          var headerOffset = 70;
-          var elementPosition = target.getBoundingClientRect().top;
-          var offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-          window.scrollTo({
-            top: offsetPosition,
-            behavior: "smooth"
+          target.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
           });
         }
       });

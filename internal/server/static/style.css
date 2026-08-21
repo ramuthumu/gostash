@@ -200,6 +200,9 @@ body.theme-dark .bookmarklet {
 
 .article-content { font-size: 1.25rem; line-height: 1.75; }
 .article-content p { margin: 0 0 1.1rem; }
+.article-content h1, .article-content h2, .article-content h3, .article-content h4 {
+  scroll-margin-top: 80px;
+}
 .article-content h2 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
 .article-content h3 { font-size: 1.25rem; margin: 1.5rem 0 0.5rem; }
 .article-content img { max-width: 100%; height: auto; border-radius: 8px; margin: 1rem 0; }
