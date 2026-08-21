@@ -82,6 +82,8 @@
   });
 
   function setTheme(theme) {
+    document.documentElement.classList.remove("theme-light", "theme-sepia", "theme-dark");
+    document.documentElement.classList.add("theme-" + theme);
     document.body.classList.remove("theme-light", "theme-sepia", "theme-dark");
     document.body.classList.add("theme-" + theme);
     themeBtns.forEach(function (b) {
@@ -259,21 +261,33 @@
     else if (e.key === "ArrowRight") { e.preventDefault(); setWpm(wpm + 50); }
   });
 
-  // ---------- Auto-hide controls while reading ----------
+  // ---------- Font settings: reveal controls via the Aa button ----------
+  // The controls bar is hidden by default and toggled by the Aa (Font settings)
+  // button in the top-right — Instapaper-style, no scroll guessing (the prior
+  // scroll auto-hide flickered when stopping mid-scroll). Close with Aa again,
+  // Escape, or a click outside the bar.
   var controlsEl = document.getElementById("controls");
-  var lastScroll = window.scrollY || 0;
-  window.addEventListener("scroll", function () {
-    var y = window.scrollY || 0;
-    if (y > lastScroll + 4 && y > 120) {
-      controlsEl.classList.add("collapsed");   // scrolling down into the article
-    } else if (y < lastScroll - 4) {
-      controlsEl.classList.remove("collapsed"); // scrolling up -> bring back
-    }
-    lastScroll = y;
-  }, { passive: true });
-  // also reveal when the pointer returns to the very top
-  document.addEventListener("mousemove", function (e) {
-    if (e.clientY < 56) controlsEl.classList.remove("collapsed");
+  var fsBtn = document.getElementById("font-settings-btn");
+  function setControlsOpen(open) {
+    controlsEl.classList.toggle("collapsed", !open);
+    if (fsBtn) fsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  if (fsBtn) {
+    fsBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      setControlsOpen(controlsEl.classList.contains("collapsed"));
+    });
+  }
+  // close on Escape
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !controlsEl.classList.contains("collapsed")) setControlsOpen(false);
+  });
+  // close when clicking outside the controls and the button
+  document.addEventListener("click", function (e) {
+    if (controlsEl.classList.contains("collapsed")) return;
+    if (controlsEl.contains(e.target) || (fsBtn && fsBtn.contains(e.target))) return;
+    setControlsOpen(false);
   });
 
   // ---------- init ----------

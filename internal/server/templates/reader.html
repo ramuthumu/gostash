@@ -6,18 +6,21 @@
 <title>{{if .A.Title}}{{.A.Title}}{{else}}Article{{end}} · Read Later</title>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
+<script src="/static/theme.js"></script>
 </head>
 <body>
 <div class="reader">
+ <div class="reader-top">
   <header class="reader-header">
     <a class="back" href="/">← Reading list</a>
     <span class="reader-actions">
       <a class="orig" href="{{.A.URL}}" target="_blank" rel="noopener">View original ↗</a>
+      <button id="font-settings-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Font settings" aria-label="Font settings">Aa</button>
     </span>
   </header>
 
-  <!-- Reading controls bar -->
-  <div class="controls" id="controls">
+  <!-- Reading controls bar (hidden until the Aa button is clicked) -->
+  <div class="controls collapsed" id="controls">
     <label class="ctrl">
       <span>Font</span>
       <select id="font-family">
@@ -62,6 +65,7 @@
       <button id="rsvp-open" class="primary">⚡ Speed read</button>
     </div>
   </div>
+ </div>
 
   <article>
     <h1 class="article-title">{{if .A.Title}}{{.A.Title}}{{else}}{{.A.URL}}{{end}}</h1>
