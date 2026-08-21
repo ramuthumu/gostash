@@ -4,23 +4,54 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   IMAGE: ghcr.io/ramuthumu/gostash
-  # The server is amd64 (Intel QSV). To also build arm64, add a second
-  # matrix value (runs: ubuntu-24.04-arm) and merge with a manifest job,
-  # OR set platforms: linux/amd64,linux/arm64 (slower — QEMU emulates arm64).
   PLATFORMS: linux/amd64
 
 jobs:
+  test:
+    name: Test and Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run unit tests with race detector
+        run: go test -v -race -count=1 ./...
+
   build:
+    name: Build and Publish
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Go
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -46,7 +77,7 @@ jobs:
             org.opencontainers.image.title=gostash
             org.opencontainers.image.description=Self-hosted read-it-later article archiver
 
-      - name: Build and push
+      - name: Build and push container
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -57,5 +88,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Package and Upload Release Binaries
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/gostash-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/gostash-linux-arm64 .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/gostash-darwin-arm64 .
+          tar -czf dist/gostash-${TAG}-linux-amd64.tar.gz -C dist gostash-linux-amd64
+          tar -czf dist/gostash-${TAG}-linux-arm64.tar.gz -C dist gostash-linux-arm64
+          tar -czf dist/gostash-${TAG}-darwin-arm64.tar.gz -C dist gostash-darwin-arm64
+          gh release upload "${TAG}" dist/*.tar.gz --clobber
+
       - name: Output digest
-        run: echo "Pushed ${{ env.IMAGE }}:latest (${{ steps.meta.outputs.version }})"
+        run: echo "Pushed ${{ env.IMAGE }} (${{ steps.meta.outputs.version }})"
