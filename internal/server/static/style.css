@@ -94,12 +94,14 @@ header h1 { margin: 0 0 1.5rem; font-size: 1.6rem; }
 }
 .reader-actions { display: flex; align-items: center; gap: 0.75rem; }
 .reader-actions .orig { color: var(--muted); }
-#font-settings-btn {
+.reader-actions button {
   background: none; border: 1px solid var(--border); border-radius: 6px;
-  padding: 0.1rem 0.5rem; font-size: 0.9rem; line-height: 1.4; cursor: pointer;
-  color: var(--fg); font-weight: 600;
+  padding: 0.15rem 0.55rem; font-size: 0.85rem; line-height: 1.4; cursor: pointer;
+  color: var(--fg);
 }
-#font-settings-btn:hover, #font-settings-btn[aria-expanded="true"] {
+.reader-actions button:hover { border-color: var(--accent); color: var(--accent); }
+#font-settings-btn { font-weight: 600; font-size: 0.9rem; }
+#font-settings-btn[aria-expanded="true"] {
   border-color: var(--accent); color: var(--accent);
 }
 .article-title { font-size: 2rem; line-height: 1.25; margin: 0 0 0.5rem; }
