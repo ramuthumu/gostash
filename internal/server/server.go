@@ -285,6 +285,8 @@ func proxyImgs(htmlStr string) template.HTML {
 
 func rewriteMedia(n *xhtml.Node) {
 	if n.Type == xhtml.ElementNode && (n.Data == "img" || n.Data == "source") {
+		hasLoading := false
+		hasDecoding := false
 		for i := range n.Attr {
 			switch n.Attr[i].Key {
 			case "src", "data-src":
@@ -293,6 +295,18 @@ func rewriteMedia(n *xhtml.Node) {
 				}
 			case "srcset", "data-srcset":
 				n.Attr[i].Val = rewriteSrcset(n.Attr[i].Val)
+			case "loading":
+				hasLoading = true
+			case "decoding":
+				hasDecoding = true
+			}
+		}
+		if n.Data == "img" {
+			if !hasLoading {
+				n.Attr = append(n.Attr, xhtml.Attribute{Key: "loading", Val: "lazy"})
+			}
+			if !hasDecoding {
+				n.Attr = append(n.Attr, xhtml.Attribute{Key: "decoding", Val: "async"})
 			}
 		}
 	}
@@ -456,6 +470,9 @@ func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
 	// script. nosniff is set site-wide by securityHeaders.
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Security-Policy", "sandbox")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		w.Header().Set("Content-Length", cl)
+	}
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, 25*1024*1024))
 }

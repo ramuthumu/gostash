@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Read Later</title>
 <link rel="stylesheet" href="/static/style.css">
-<script src="/static/theme.js"></script>
+<script>
+(function(){try{var p=JSON.parse(localStorage.getItem("readlater.reader.prefs"))||{};if(p.theme)document.documentElement.className="theme-"+p.theme;}catch(e){}})();
+</script>
+<script src="/static/theme.js" defer></script>
 </head>
 <body>
 <div class="container">
