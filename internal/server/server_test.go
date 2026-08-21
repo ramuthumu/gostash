@@ -53,6 +53,45 @@ func TestProxyImgsSanitizesXSS(t *testing.T) {
 	}
 }
 
+// TestProxyImgsSrcsetWithCommasInURL locks the fix for image-CDN URLs that
+// contain commas (e.g. Substack's /image/fetch/w_424,c_limit,f_webp,.../...).
+// The browser must receive one /img?url= per candidate carrying the FULL url
+// (commas percent-encoded), not a URL truncated at the first comma.
+func TestProxyImgsSrcsetWithCommasInURL(t *testing.T) {
+	// Two candidates; the URLs contain raw commas, the candidate separator is ", ".
+	srcset := `https://substackcdn.com/image/fetch/w_424,c_limit,f_webp,q_auto:good/https%3A%2F%2Fbucket.example.com%2Fa.jpeg 424w, ` +
+		`https://substackcdn.com/image/fetch/w_848,c_limit,f_webp,q_auto:good/https%3A%2F%2Fbucket.example.com%2Fa.jpeg 848w`
+	input := `<img src="https://substackcdn.com/image/fetch/w_1456,c_limit/https%3A%2F%2Fbucket.example.com%2Fa.jpeg" srcset="` + srcset + `">`
+
+	out := string(proxyImgs(input))
+
+	// Each candidate URL must be proxied in full: the comma-bearing CDN path
+	// "w_424,c_limit,f_webp" must survive (commas encoded as %2C), not be split.
+	if strings.Count(out, "/img?url=") < 3 {
+		t.Errorf("expected >=3 /img?url= (1 src + 2 srcset), got %d: %q", strings.Count(out, "/img?url="), out)
+	}
+	// The descriptor tokens must survive, attached to their candidate.
+	if !strings.Contains(out, "424w") || !strings.Contains(out, "848w") {
+		t.Errorf("srcset descriptors lost: %q", out)
+	}
+	// The full CDN path with commas must appear (commas encoded), proving the URL
+	// was not truncated at the first comma.
+	if !strings.Contains(out, "w_424") || !strings.Contains(out, "c_limit") || !strings.Contains(out, "f_webp") {
+		t.Errorf("comma-bearing URL was truncated (lost w_424/c_limit/f_webp): %q", out)
+	}
+	// Commas in the proxied URL must be encoded as %2C, never raw, so the browser
+	// doesn't split the candidate at an in-URL comma.
+	for _, frag := range []string{"/img?url=https%3A%2F%2Fsubstackcdn.com"} {
+		if !strings.Contains(out, frag) {
+			t.Errorf("expected proxied URL prefix %q missing: %q", frag, out)
+		}
+	}
+	// No raw ", w_" (comma-space-w) leakage that would indicate a split candidate.
+	if strings.Contains(out, ", w_") {
+		t.Errorf("raw \", w_\" in output indicates srcset was split on an in-URL comma: %q", out)
+	}
+}
+
 func TestProxyImgsPreservesSafeStructure(t *testing.T) {
 	input := `<p>hello</p><h2>title</h2><a href="https://example.com">link</a>`
 	out := string(proxyImgs(input))

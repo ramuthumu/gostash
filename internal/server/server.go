@@ -313,20 +313,91 @@ func absHTTP(s string) string {
 
 // rewriteSrcset rewrites each absolute http(s) candidate URL in a srcset
 // attribute to /img?url=..., preserving its descriptor (e.g. "2x", "300w").
+//
+// Candidate URLs may themselves contain commas — e.g. Substack's CDN uses
+// /image/fetch/w_424,c_limit,f_webp,q_auto:good,.../https%3A... — so we cannot
+// simply split on commas. Per the HTML spec, a srcset URL is a maximal run of
+// non-whitespace characters (commas included); commas only separate candidates.
+// Splitting on every comma shreds such URLs and leaves the browser fetching a
+// truncated /img?url=... that 404s. parseSrcset implements the spec tokenization.
 func rewriteSrcset(val string) string {
-	parts := strings.Split(val, ",")
-	for i, p := range parts {
-		p = strings.TrimSpace(p)
-		fields := strings.Fields(p)
-		if len(fields) == 0 {
-			continue
-		}
-		if u := absHTTP(fields[0]); u != "" {
-			fields[0] = "/img?url=" + url.QueryEscape(u)
-			parts[i] = strings.Join(fields, " ")
+	parts := make([]string, 0, 4)
+	for _, c := range parseSrcset(val) {
+		if u := absHTTP(c.url); u != "" {
+			s := "/img?url=" + url.QueryEscape(u)
+			if c.desc != "" {
+				s += " " + c.desc
+			}
+			parts = append(parts, s)
+		} else {
+			// Relative / data: / non-http(s) candidates: keep verbatim.
+			s := c.url
+			if c.desc != "" {
+				s += " " + c.desc
+			}
+			parts = append(parts, s)
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// srcsetCandidate is one entry of a srcset attribute: a URL and its optional
+// descriptor (e.g. "424w", "2x"). An empty descriptor means 1x.
+type srcsetCandidate struct {
+	url  string
+	desc string
+}
+
+// parseSrcset tokenizes a srcset attribute per the HTML spec
+// (https://html.spec.whatwg.org/multipage/images.html). Each candidate's URL is
+// a maximal run of non-whitespace code points — commas are NOT delimiters for
+// the URL, only whitespace is — so URLs containing commas (common with image
+// CDNs) stay intact. The optional descriptor follows, separated by whitespace,
+// and runs up to the next comma or whitespace. Whitespace and commas between
+// candidates are skipped as separators.
+func parseSrcset(val string) []srcsetCandidate {
+	var out []srcsetCandidate
+	isWS := func(b byte) bool {
+		return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' || b == '\v'
+	}
+	i, n := 0, len(val)
+	for i < n {
+		// Skip whitespace and commas separating candidates.
+		for i < n && (isWS(val[i]) || val[i] == ',') {
+			i++
+		}
+		if i >= n {
+			break
+		}
+		// URL: run of non-whitespace (commas included, per spec).
+		urlStart := i
+		for i < n && !isWS(val[i]) {
+			i++
+		}
+		u := val[urlStart:i]
+		// Trailing commas on the URL are candidate separators (a parse error per
+		// spec); strip them. This candidate then has no descriptor.
+		desc := ""
+		if strings.HasSuffix(u, ",") {
+			u = strings.TrimRight(u, ",")
+		} else if i < n {
+			// Optional descriptor: skip whitespace, then run to next ws/comma.
+			for i < n && isWS(val[i]) {
+				i++
+			}
+			if i < n && val[i] != ',' {
+				descStart := i
+				for i < n && !isWS(val[i]) && val[i] != ',' {
+					i++
+				}
+				desc = val[descStart:i]
+			}
+		}
+		if u != "" {
+			out = append(out, srcsetCandidate{url: u, desc: desc})
+		}
+	}
+	return out
 }
 
 // handleImageProxy fetches an external image server-side with a spoofed Referer
