@@ -38,6 +38,9 @@ case "$ARCH" in
   *) echo "unsupported arch: $ARCH" >&2; exit 1 ;;
 esac
 
+# Shell-escape REMOTE_DIR so spaces/metachars are safe on the remote side.
+REMOTE_DIR_ESC=$(printf '%q' "$REMOTE_DIR")
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -46,10 +49,10 @@ GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 \
   go build -trimpath -ldflags="-s -w" -o "$TMP/gostash" .
 
 echo "==> Preparing remote $REMOTE:$REMOTE_DIR"
-ssh "$REMOTE" "sudo mkdir -p $REMOTE_DIR && sudo chown -R \$USER:\$USER $REMOTE_DIR"
+ssh "$REMOTE" "sudo mkdir -p $REMOTE_DIR_ESC && sudo chown -R \$USER:\$USER $REMOTE_DIR_ESC"
 
 echo "==> Copying binary and unit"
-scp "$TMP/gostash" "$REMOTE:$REMOTE_DIR/gostash"
+scp "$TMP/gostash" "$REMOTE:$REMOTE_DIR_ESC/gostash"
 
 # Upload the systemd unit to a temp path on the remote, then install with sudo.
 ssh "$REMOTE" "cat > /tmp/gostash.service" < deploy/gostash.service
@@ -57,7 +60,7 @@ ssh "$REMOTE" "cat > /tmp/gostash.service" < deploy/gostash.service
 echo "==> Installing service"
 ssh "$REMOTE" 'set -e
   sudo install -d -o gostash -g gostash /var/lib/gostash 2>/dev/null || sudo install -d /var/lib/gostash
-  sudo install -m 0755 '"$REMOTE_DIR"'/gostash /usr/local/bin/gostash
+  sudo install -m 0755 '"$REMOTE_DIR_ESC"'/gostash /usr/local/bin/gostash
   sudo install -m 0644 /tmp/gostash.service /etc/systemd/system/gostash.service
   id -u gostash >/dev/null 2>&1 || sudo useradd --system --home /var/lib/gostash --shell /usr/sbin/nologin gostash
   sudo chown -R gostash:gostash /var/lib/gostash

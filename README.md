@@ -33,8 +33,9 @@ Then open <http://localhost:8090>.
 
 | Variable         | Default                | Description                         |
 |------------------|------------------------|-------------------------------------|
-| `READLATER_ADDR` | `:8090`                | Address to listen on                |
+| `READLATER_ADDR` | `127.0.0.1:8090`       | Address to listen on (loopback only by default; set to `:8090` to expose on all interfaces) |
 | `READLATER_DATA` | `~/.readlater`         | Directory for the SQLite database   |
+| `READLATER_PUBLIC_URL` | _(empty)_            | Public base URL for the bookmarklet, e.g. `https://later.example.com` (use behind a reverse proxy) |
 
 ```bash
 READLATER_ADDR=:9000 READLATER_DATA=./data go run .
@@ -77,7 +78,7 @@ gostash/
 
 | Layer              | Choice                                              |
 |--------------------|-----------------------------------------------------|
-| Language           | Go 1.23+                                            |
+| Language           | Go 1.25+                                            |
 | HTTP / routing     | `net/http` (Go 1.22+ path patterns)                 |
 | Content extraction | `github.com/go-shiori/go-readability`               |
 | Storage            | SQLite via `modernc.org/sqlite` (pure Go, no CGO)   |
@@ -90,6 +91,9 @@ gostash/
   (Chromedp) fallback would help.
 - No full-text search yet (easy to add with SQLite FTS5).
 - No tags/folders, no per-article reading position, no auth (single-user, local).
+- Single-user, no auth: bind to localhost or put behind an authenticated reverse
+  proxy (see `deploy/`). POST mutations are guarded by a same-origin check, and
+  the `/img` proxy blocks loopback/link-local/private addresses (SSRF).
 
 ## License
 

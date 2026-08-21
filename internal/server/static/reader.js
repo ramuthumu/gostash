@@ -121,9 +121,25 @@
   var wpm = 350;
 
   function tokenize(text) {
-    // Collapse all whitespace (incl. unicode NBSP and zero-width) to single spaces,
-    // then split and drop empty/whitespace-only tokens.
+    // Collapse all whitespace (incl. unicode NBSP and zero-width) to single spaces.
     text = text.replace(/[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+/g, " ");
+    // Word segmentation: Intl.Segmenter splits CJK (Chinese/Japanese/Korean),
+    // which have no inter-word spaces, on per-word boundaries while keeping
+    // Latin words intact. Without this, a whole CJK paragraph would collapse
+    // into one giant token and speed-reading would be unusable for those scripts.
+    if (window.Intl && Intl.Segmenter) {
+      try {
+        var wordSeg = new Intl.Segmenter(undefined, { granularity: "word" });
+        var out = [];
+        // for..of over the segment iterable (Segmenter is iterable).
+        var iter = wordSeg[Symbol.iterator]();
+        var s;
+        while (!(s = iter.next()).done) {
+          if (s.value.isWordLike) out.push(s.value.segment);
+        }
+        if (out.length) return out;
+      } catch (e) {}
+    }
     return text.split(" ").map(function (w) { return w.trim(); }).filter(Boolean);
   }
 
@@ -163,8 +179,18 @@
   }
 
   function updateProgress() {
+    // index here is the count of words shown so far (incremented before this
+    // call), so progress reaches 100% on the last word instead of stalling ~97%.
     var pct = words.length ? (index / words.length) * 100 : 0;
     barEl.style.width = pct + "%";
+  }
+
+  function step() {
+    if (index >= words.length) { pause(); playBtn.textContent = "▶ Play"; return; }
+    renderWord(words[index]);
+    index++;
+    updateProgress();
+    timer = setTimeout(step, delayFor(words[index - 1]));
   }
 
   function delayFor(word) {
@@ -175,14 +201,6 @@
     return baseDelay();
   }
   function baseDelay() { return 60000 / wpm; }
-
-  function step() {
-    if (index >= words.length) { pause(); index = 0; renderWord(words[0] || ""); updateProgress(); playBtn.textContent = "▶ Play"; return; }
-    renderWord(words[index]);
-    updateProgress();
-    index++;
-    timer = setTimeout(step, delayFor(words[index - 1]));
-  }
 
   function play() {
     if (timer) return;
@@ -237,8 +255,8 @@
     if (overlay.hidden) return;
     if (e.code === "Space") { e.preventDefault(); toggle(); }
     else if (e.key === "Escape") { close(); }
-    else if (e.key === "ArrowLeft") { setWpm(wpm - 50); }
-    else if (e.key === "ArrowRight") { setWpm(wpm + 50); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); setWpm(wpm - 50); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); setWpm(wpm + 50); }
   });
 
   // ---------- Auto-hide controls while reading ----------

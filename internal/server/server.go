@@ -1,8 +1,11 @@
 package server
 
 import (
+	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"io"
 	"io/fs"
@@ -10,29 +13,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	xhtml "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
+
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/ramuthumu/gostash/internal/archive"
 	"github.com/ramuthumu/gostash/internal/db"
 )
-
-const browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-
-// matches src="https?://..." (absolute URLs only; leaves relative/data: alone)
-var imgSrcRe = regexp.MustCompile(`(?i)(\bsrc=")(https?://[^"]+)(")`)
-
-// proxyImgs rewrites absolute <img src> URLs to go through /img?url=... so that
-// hotlink-protected CDNs (e.g. eenadu.net) load via a server-side fetch with a
-// spoofed Referer. Returns template.HTML so it isn't re-escaped.
-func proxyImgs(htmlStr string) template.HTML {
-	return template.HTML(imgSrcRe.ReplaceAllStringFunc(htmlStr, func(m string) string {
-		sub := imgSrcRe.FindStringSubmatch(m)
-		return sub[1] + "/img?url=" + url.QueryEscape(sub[2]) + sub[3]
-	}))
-}
 
 //go:embed templates/*.html
 var templateFS embed.FS
@@ -47,7 +38,6 @@ type Server struct {
 
 func New(store *db.Store) *Server {
 	t := template.Must(template.New("").Funcs(template.FuncMap{
-		"safe":      func(s string) template.HTML { return template.HTML(s) },
 		"proxyImgs": proxyImgs,
 	}).ParseFS(templateFS, "templates/*.html"))
 	return &Server{store: store, tmpl: t}
@@ -66,8 +56,45 @@ func (s *Server) ListenAndServe(addr string) error {
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
-	srv := &http.Server{Addr: addr, Handler: logRequests(mux)}
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      securityHeaders(sameOrigin(logRequests(mux))),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 	return srv.ListenAndServe()
+}
+
+// sameOrigin blocks cross-site form POSTs (CSRF). Same-origin POSTs carry an
+// Origin header whose host matches r.Host; a cross-site form POST carries the
+// attacker's origin. Personal/tailnet-only, so this is a lightweight guard.
+func sameOrigin(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			if origin := r.Header.Get("Origin"); origin != "" {
+				if u, err := url.Parse(origin); err == nil && u.Host != "" && u.Host != r.Host {
+					http.Error(w, "cross-site request blocked", http.StatusForbidden)
+					return
+				}
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// securityHeaders sets baseline browser-isolation headers on every response.
+// X-Frame-Options: DENY prevents clickjacking of destructive POSTs (Delete /
+// Mark read) from a framed instance — the sameOrigin guard passes for POSTs
+// whose framed document origin is ours, so framing must be blocked outright.
+// X-Content-Type-Options: nosniff stops browsers MIME-sniffing proxied/downloaded
+// content into an executable type.
+func securityHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		h.ServeHTTP(w, r)
+	})
 }
 
 func logRequests(h http.Handler) http.Handler {
@@ -84,7 +111,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "list.html", map[string]any{
-		"Articles": articles,
+		"Articles":    articles,
 		"Bookmarklet": bookmarkletURL(r),
 	})
 }
@@ -102,7 +129,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "list.html", map[string]any{
 			"Articles":    articles,
 			"Error":       err.Error(),
-			"Bookmarklet": "javascript:void(0)",
+			"Bookmarklet": bookmarkletURL(r),
 		})
 		return
 	}
@@ -132,7 +159,12 @@ func (s *Server) handleReader(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := s.store.Get(id)
 	if err != nil {
-		http.NotFound(w, r)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+		} else {
+			log.Printf("get article %d: %v", id, err)
+			http.Error(w, "database error", http.StatusInternalServerError)
+		}
 		return
 	}
 	if !a.Read {
@@ -150,7 +182,12 @@ func (s *Server) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := s.store.Get(id)
 	if err != nil {
-		http.NotFound(w, r)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+		} else {
+			log.Printf("get article %d: %v", id, err)
+			http.Error(w, "database error", http.StatusInternalServerError)
+		}
 		return
 	}
 	_ = s.store.SetRead(id, !a.Read)
@@ -182,27 +219,123 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-// bookmarkletURL returns a JS bookmarklet string that POSTs the current page to /save.
-// Using a GET redirect keeps it simple and works without a separate JS file.
-func bookmarkletURL(r *http.Request) string {
-	host := r.Host
-	if host == "" {
-		host = "localhost:8090"
+// bookmarkletURL returns an <a> element (as template.HTML) holding a JS
+// bookmarklet that archives the current page via /save?url=... . The whole
+// anchor is returned as safe HTML because html/template's URL filter would
+// otherwise neutralize the javascript: scheme to "#ZgotmplZ" (verified).
+// READLATER_PUBLIC_URL, if set, overrides the base (scheme://host) used in the
+// bookmarklet — useful behind a reverse proxy where you want a stable URL.
+func bookmarkletURL(r *http.Request) template.HTML {
+	base := ""
+	if pub := os.Getenv("READLATER_PUBLIC_URL"); pub != "" {
+		base = strings.TrimRight(pub, "/")
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
+	if base == "" {
+		host := r.Host
+		if host == "" {
+			host = "localhost:8090"
+		}
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		base = scheme + "://" + host
 	}
-	_ = os.Getenv("READLATER_PUBLIC_URL") // allow override in future
-	base := scheme + "://" + host
 	js := "javascript:void(location.href='" + base + "/save?url='+encodeURIComponent(location.href));"
-	return js
+	return template.HTML(`<a class="bookmarklet-link" href="` + html.EscapeString(js) + `">📑 Read Later</a>`)
+}
+
+// sanitizePolicy is a bluemonday allowlist for rendered article HTML. It strips
+// XSS vectors — on* event handlers, <script>/<style>/<iframe>/<object>/<embed>/
+// <link>/<meta>/<base>, and javascript:/vbscript:/data: URLs — while preserving
+// readability's article formatting and the image attributes proxyImgs rewrites
+// (src, srcset, data-src, data-srcset, sizes, loading). go-readability is an
+// extractor, not a sanitizer (it leaves on* attributes and case-variant
+// javascript: hrefs intact), so this pass is required before rendering.
+var sanitizePolicy = func() *bluemonday.Policy {
+	p := bluemonday.UGCPolicy()
+	// Keep responsive/lazy image attributes so proxyImgs can route them via /img.
+	p.AllowAttrs("srcset", "sizes", "data-src", "data-srcset", "loading", "decoding").
+		OnElements("img", "source")
+	p.AllowAttrs("type", "media").OnElements("source")
+	p.AllowElements("picture", "source")
+	return p
+}()
+
+// proxyImgs rewrites absolute http(s) image URLs (src, srcset, data-src,
+// data-srcset) in <img> and <source> elements to go through /img?url=... so
+// that hotlink-protected CDNs load via a server-side fetch with a spoofed
+// Referer. Relative, data:, and non-http(s) URLs are left untouched. Returns
+// template.HTML so it isn't re-escaped.
+func proxyImgs(htmlStr string) template.HTML {
+	htmlStr = sanitizePolicy.Sanitize(htmlStr)
+	nodes, err := xhtml.ParseFragment(strings.NewReader(htmlStr), &xhtml.Node{Type: xhtml.ElementNode, Data: "body", DataAtom: atom.Body})
+	if err != nil || len(nodes) == 0 {
+		return template.HTML(htmlStr)
+	}
+	for _, n := range nodes {
+		rewriteMedia(n)
+	}
+	var b strings.Builder
+	for _, n := range nodes {
+		_ = xhtml.Render(&b, n)
+	}
+	return template.HTML(b.String())
+}
+
+func rewriteMedia(n *xhtml.Node) {
+	if n.Type == xhtml.ElementNode && (n.Data == "img" || n.Data == "source") {
+		for i := range n.Attr {
+			switch n.Attr[i].Key {
+			case "src", "data-src":
+				if u := absHTTP(n.Attr[i].Val); u != "" {
+					n.Attr[i].Val = "/img?url=" + url.QueryEscape(u)
+				}
+			case "srcset", "data-srcset":
+				n.Attr[i].Val = rewriteSrcset(n.Attr[i].Val)
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		rewriteMedia(c)
+	}
+}
+
+// absHTTP returns s if it is an absolute http/https URL, else "". Scheme
+// matching is case-insensitive per RFC 3986 (HTTP:// and HTTPS:// qualify).
+func absHTTP(s string) string {
+	lower := strings.ToLower(s)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return ""
+	}
+	return s
+}
+
+// rewriteSrcset rewrites each absolute http(s) candidate URL in a srcset
+// attribute to /img?url=..., preserving its descriptor (e.g. "2x", "300w").
+func rewriteSrcset(val string) string {
+	parts := strings.Split(val, ",")
+	for i, p := range parts {
+		p = strings.TrimSpace(p)
+		fields := strings.Fields(p)
+		if len(fields) == 0 {
+			continue
+		}
+		if u := absHTTP(fields[0]); u != "" {
+			fields[0] = "/img?url=" + url.QueryEscape(u)
+			parts[i] = strings.Join(fields, " ")
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // handleImageProxy fetches an external image server-side with a spoofed Referer
 // (the image host's own origin) so hotlink-protected CDNs serve it, then streams
-// the bytes back to the browser. Gated to image/* content types. Personal/tailnet
-// only, so SSRF risk is limited to trusted users.
+// the bytes back to the browser. Gated to image/* content types; rejects
+// image/svg+xml and sets CSP: sandbox on the response. Personal/tailnet only,
+// so SSRF risk is limited to trusted users; guardedDial additionally blocks
+// loopback/link-local/private/unspecified targets (e.g. cloud metadata at
+// 169.254.169.254). Public and CGNAT/tailnet (100.64/10) addresses are allowed.
 func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
 	raw := strings.TrimSpace(r.URL.Query().Get("url"))
 	if raw == "" {
@@ -220,12 +353,12 @@ func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	req.Header.Set("User-Agent", browserUA)
+	req.Header.Set("User-Agent", archive.BrowserUA)
 	// The image's own origin is the referer most CDNs' hotlink checks accept.
 	req.Header.Set("Referer", u.Scheme+"://"+u.Host+"/")
 	req.Header.Set("Accept", "image/*,*/*;q=0.8")
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := archive.SafeClient(20 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "fetch failed: "+err.Error(), http.StatusBadGateway)
@@ -238,7 +371,20 @@ func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not an image ("+ct+")", http.StatusUnsupportedMediaType)
 		return
 	}
+	// image/svg+xml executes script when navigated as a top-level document in
+	// our origin (can then fetch("/") and POST /article/{id}/delete). <img>-
+	// embedded SVGs are scriptless, so only the direct-navigation case bites;
+	// reject it outright as the only hard case.
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(ct)), "image/svg") {
+		http.Error(w, "svg images are not permitted", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	// sandbox disables scripts even if a future content type slips through the
+	// image/ gate, so a directly-navigated /img?url=... URL cannot run same-origin
+	// script. nosniff is set site-wide by securityHeaders.
 	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, 25*1024*1024))
 }

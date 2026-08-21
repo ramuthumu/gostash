@@ -31,11 +31,11 @@ func main() {
 
 	addr := os.Getenv("READLATER_ADDR")
 	if addr == "" {
-		addr = ":8090"
+		addr = "127.0.0.1:8090" // loopback only by default; set READLATER_ADDR=":8090" to expose on all interfaces
 	}
 
 	srv := server.New(store)
-	log.Printf("readlater listening on http://localhost%s", addr)
+	log.Printf("readlater listening on http://%s", addr)
 	if err := srv.ListenAndServe(addr); err != nil {
 		log.Fatal(err)
 	}
