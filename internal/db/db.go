@@ -179,7 +179,7 @@ func (s *Store) List(filter string, query string) ([]Article, error) {
 			q = `
 				SELECT a.id, a.url, a.title, a.author, a.excerpt, a.text_content, a.archived_at, a.read
 				FROM articles a
-				JOIN articles_fts f ON a.id = f.rowid
+				JOIN articles_fts ON a.id = articles_fts.rowid
 				WHERE articles_fts MATCH ? AND a.read = 1
 				ORDER BY rank, a.archived_at DESC
 			`
@@ -188,7 +188,7 @@ func (s *Store) List(filter string, query string) ([]Article, error) {
 			q = `
 				SELECT a.id, a.url, a.title, a.author, a.excerpt, a.text_content, a.archived_at, a.read
 				FROM articles a
-				JOIN articles_fts f ON a.id = f.rowid
+				JOIN articles_fts ON a.id = articles_fts.rowid
 				WHERE articles_fts MATCH ?
 				ORDER BY rank, a.archived_at DESC
 			`
@@ -197,7 +197,7 @@ func (s *Store) List(filter string, query string) ([]Article, error) {
 			q = `
 				SELECT a.id, a.url, a.title, a.author, a.excerpt, a.text_content, a.archived_at, a.read
 				FROM articles a
-				JOIN articles_fts f ON a.id = f.rowid
+				JOIN articles_fts ON a.id = articles_fts.rowid
 				WHERE articles_fts MATCH ? AND a.read = 0
 				ORDER BY rank, a.archived_at DESC
 			`
