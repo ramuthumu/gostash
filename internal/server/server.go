@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,15 +33,16 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	store *db.Store
-	tmpl  *template.Template
+	store    *db.Store
+	mediaDir string
+	tmpl     *template.Template
 }
 
-func New(store *db.Store) *Server {
+func New(store *db.Store, mediaDir string) *Server {
 	t := template.Must(template.New("").Funcs(template.FuncMap{
 		"proxyImgs": proxyImgs,
 	}).ParseFS(templateFS, "templates/*.html"))
-	return &Server{store: store, tmpl: t}
+	return &Server{store: store, mediaDir: mediaDir, tmpl: t}
 }
 
 func (s *Server) ListenAndServe(addr string) error {
@@ -48,6 +50,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("GET /", s.handleList)
 	mux.HandleFunc("POST /", s.handleSubmit)
 	mux.HandleFunc("GET /save", s.handleSaveBookmarklet)
+	mux.HandleFunc("GET /media/{file}", s.handleMedia)
 	mux.HandleFunc("GET /img", s.handleImageProxy)
 	mux.HandleFunc("GET /article/{id}", s.handleReader)
 	mux.HandleFunc("POST /article/{id}/read", s.handleToggleRead)
@@ -255,11 +258,28 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) archiveURL(url string) (int64, error) {
-	a, err := archive.Fetch(url)
+	a, err := archive.Fetch(url, s.mediaDir)
 	if err != nil {
 		return 0, err
 	}
 	return s.store.Save(a)
+}
+
+func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
+	file := filepath.Base(r.PathValue("file"))
+	if file == "." || file == "/" || strings.Contains(file, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	filePath := filepath.Join(s.mediaDir, file)
+	if _, err := os.Stat(filePath); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeFile(w, r, filePath)
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {

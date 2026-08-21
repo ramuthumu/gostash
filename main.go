@@ -34,7 +34,12 @@ func main() {
 		addr = "127.0.0.1:8090" // loopback only by default; set READLATER_ADDR=":8090" to expose on all interfaces
 	}
 
-	srv := server.New(store)
+	mediaDir := filepath.Join(dataDir, "media")
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		log.Fatal(err)
+	}
+
+	srv := server.New(store, mediaDir)
 	log.Printf("readlater listening on http://%s", addr)
 	if err := srv.ListenAndServe(addr); err != nil {
 		log.Fatal(err)

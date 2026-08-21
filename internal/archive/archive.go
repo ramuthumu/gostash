@@ -70,8 +70,9 @@ func SafeClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// Fetch downloads the page at rawURL and extracts a readable article.
-func Fetch(rawURL string) (db.Article, error) {
+// Fetch downloads the page at rawURL, extracts a readable article, and
+// downloads all images locally into mediaDir (rewriting image tags to /media/...).
+func Fetch(rawURL string, mediaDir string) (db.Article, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return db.Article{}, fmt.Errorf("empty url")
@@ -113,12 +114,17 @@ func Fetch(rawURL string) (db.Article, error) {
 		title = rawURL
 	}
 
+	contentHTML := art.Content
+	if mediaDir != "" {
+		contentHTML = ProcessAndDownloadMedia(contentHTML, parsed, mediaDir)
+	}
+
 	return db.Article{
 		URL:         rawURL,
 		Title:       title,
 		Author:      strings.TrimSpace(art.Byline),
 		Excerpt:     strings.TrimSpace(art.Excerpt),
-		ContentHTML: art.Content,
+		ContentHTML: contentHTML,
 		TextContent: art.TextContent,
 	}, nil
 }

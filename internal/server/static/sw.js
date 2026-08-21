@@ -36,8 +36,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // For static assets: cache first, fall back to network
-  if (url.pathname.startsWith('/static/') || url.pathname === '/manifest.webmanifest') {
+  // For static and media assets: cache first, fall back to network
+  if (url.pathname.startsWith('/static/') || url.pathname.startsWith('/media/') || url.pathname === '/manifest.webmanifest') {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;
