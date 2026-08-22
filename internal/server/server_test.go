@@ -127,4 +127,3 @@ func TestPWAStaticFilesEmbedded(t *testing.T) {
 		t.Errorf("sw.js missing CACHE_NAME: %s", string(sw))
 	}
 }
-

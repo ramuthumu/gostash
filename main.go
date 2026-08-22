@@ -1,15 +1,25 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/ramuthumu/gostash/internal/db"
 	"github.com/ramuthumu/gostash/internal/server"
 )
 
+// version is stamped at build time via -ldflags="-X main.version=...".
+var version = "dev"
+
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	dataDir := os.Getenv("READLATER_DATA")
 	if dataDir == "" {
 		home, err := os.UserHomeDir()
@@ -18,7 +28,8 @@ func main() {
 		}
 		dataDir = filepath.Join(home, ".readlater")
 	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	// 0700: the DB holds the user's reading history.
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		log.Fatal(err)
 	}
 	dbPath := filepath.Join(dataDir, "readlater.db")
@@ -35,13 +46,13 @@ func main() {
 	}
 
 	mediaDir := filepath.Join(dataDir, "media")
-	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+	if err := os.MkdirAll(mediaDir, 0o700); err != nil {
 		log.Fatal(err)
 	}
 
 	srv := server.New(store, mediaDir)
-	log.Printf("readlater listening on http://%s", addr)
-	if err := srv.ListenAndServe(addr); err != nil {
+	log.Printf("gostash %s listening on http://%s", version, addr)
+	if err := srv.ListenAndServe(ctx, addr); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
 	}
 }

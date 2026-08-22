@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ramuthumu/gostash/internal/srcset"
@@ -37,16 +39,33 @@ type Server struct {
 	store    *db.Store
 	mediaDir string
 	tmpl     *template.Template
+
+	mu       sync.Mutex
+	inflight map[int64]bool // article ids with a fetch worker running
+	pruning  bool           // media GC single-flight flag
 }
 
 func New(store *db.Store, mediaDir string) *Server {
 	t := template.Must(template.New("").Funcs(template.FuncMap{
 		"proxyImgs": proxyImgs,
 	}).ParseFS(templateFS, "templates/*.html"))
-	return &Server{store: store, mediaDir: mediaDir, tmpl: t}
+	return &Server{store: store, mediaDir: mediaDir, tmpl: t,
+		inflight: make(map[int64]bool)}
 }
 
-func (s *Server) ListenAndServe(addr string) error {
+// ListenAndServe resumes any fetches a previous crash left pending, then
+// serves until ctx is cancelled, at which point in-flight requests get five
+// seconds to drain.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	pending, err := s.store.PendingArticles()
+	if err != nil {
+		log.Printf("resume pending articles: %v", err)
+	}
+	for _, a := range pending {
+		log.Printf("resuming interrupted archive of %s", a.URL)
+		s.spawnFetch(a.ID)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleList)
 	mux.HandleFunc("POST /", s.handleSubmit)
@@ -56,6 +75,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("GET /article/{id}", s.handleReader)
 	mux.HandleFunc("POST /article/{id}/read", s.handleToggleRead)
 	mux.HandleFunc("POST /article/{id}/delete", s.handleDelete)
+	mux.HandleFunc("POST /article/{id}/retry", s.handleRetry)
 
 	mux.HandleFunc("GET /manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
@@ -89,7 +109,17 @@ func (s *Server) ListenAndServe(addr string) error {
 		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	return srv.ListenAndServe()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		log.Print("shutting down")
+		return srv.Shutdown(shutdownCtx)
+	}
 }
 
 // sameOrigin blocks cross-site form POSTs (CSRF). Same-origin POSTs carry an
@@ -140,7 +170,11 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if filter == "" {
 		filter = db.FilterUnread
 	}
-	counts, _ := s.store.Counts()
+	counts, err := s.store.Counts()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
 	articles, err := s.store.List(filter, q)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -156,26 +190,118 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
-	url := strings.TrimSpace(r.FormValue("url"))
-	if url == "" {
+	rawURL := strings.TrimSpace(r.FormValue("url"))
+	if rawURL == "" {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	id, err := s.archiveURL(url)
+	id, err := s.enqueue(rawURL)
 	if err != nil {
-		log.Printf("archive error: %v", err)
-		counts, _ := s.store.Counts()
-		articles, _ := s.store.List(db.FilterUnread, "")
-		s.render(w, "list.html", map[string]any{
-			"Articles":    articles,
-			"Counts":      counts,
-			"Filter":      db.FilterUnread,
-			"Error":       err.Error(),
-			"Bookmarklet": bookmarkletURL(r),
-		})
+		log.Printf("enqueue %s: %v", rawURL, err)
+		s.renderListError(w, r, "Could not queue that URL: "+err.Error())
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/article/%d", id), http.StatusSeeOther)
+}
+
+// renderListError re-renders the unread list with an error banner.
+func (s *Server) renderListError(w http.ResponseWriter, r *http.Request, msg string) {
+	counts, err := s.store.Counts()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	articles, err := s.store.List(db.FilterUnread, "")
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "list.html", map[string]any{
+		"Articles":    articles,
+		"Counts":      counts,
+		"Filter":      db.FilterUnread,
+		"Error":       msg,
+		"Bookmarklet": bookmarkletURL(r),
+	})
+}
+
+// enqueue flips the article to pending and starts a fetch worker. Returns the
+// row id immediately; the fetch completes in the background.
+func (s *Server) enqueue(rawURL string) (int64, error) {
+	id, err := s.store.Enqueue(rawURL)
+	if err != nil {
+		return 0, err
+	}
+	s.spawnFetch(id)
+	return id, nil
+}
+
+// spawnFetch launches one archiving worker for id unless another is already
+// running for it. Results are written by the worker via Complete/Fail.
+func (s *Server) spawnFetch(id int64) {
+	s.mu.Lock()
+	if s.inflight[id] {
+		s.mu.Unlock()
+		return
+	}
+	s.inflight[id] = true
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.inflight, id)
+			s.mu.Unlock()
+			s.pruneMedia() // this fetch may have orphaned previously stored images
+		}()
+		stored, err := s.store.Get(id)
+		if err != nil {
+			log.Printf("fetch worker %d: load: %v", id, err)
+			_ = s.store.Fail(id, "database error while archiving")
+			return
+		}
+		fetched, ferr := archive.Fetch(stored.URL, s.mediaDir)
+		if ferr != nil {
+			log.Printf("archive %s: %v", stored.URL, ferr)
+			if failErr := s.store.Fail(id, ferr.Error()); failErr != nil {
+				log.Printf("mark failed %d: %v", id, failErr)
+			}
+			return
+		}
+		if err := s.store.Complete(id, fetched); err != nil {
+			log.Printf("complete %d: %v", id, err)
+		}
+	}()
+}
+
+// pruneMedia garbage-collects unreferenced files in the media dir. Skips when
+// a sweep is already running — sweeps are cheap to defer, not to duplicate.
+func (s *Server) pruneMedia() {
+	s.mu.Lock()
+	if s.pruning {
+		s.mu.Unlock()
+		return
+	}
+	s.pruning = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.pruning = false
+		s.mu.Unlock()
+	}()
+	refs, err := s.store.MediaRefs()
+	if err != nil {
+		log.Printf("media gc: refs: %v", err)
+		return
+	}
+	removed, err := archive.PruneMedia(s.mediaDir, refs)
+	if err != nil {
+		log.Printf("media gc: %v", err)
+		return
+	}
+	if len(removed) > 0 {
+		log.Printf("media gc: removed %d unreferenced file(s)", len(removed))
+	}
 }
 
 func (s *Server) handleSaveBookmarklet(w http.ResponseWriter, r *http.Request) {
@@ -196,9 +322,9 @@ func (s *Server) handleSaveBookmarklet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing url", http.StatusBadRequest)
 		return
 	}
-	id, err := s.archiveURL(rawURL)
+	id, err := s.enqueue(rawURL)
 	if err != nil {
-		log.Printf("save archive error: %v", err)
+		log.Printf("save %s: %v", rawURL, err)
 		http.Error(w, "Could not archive: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -221,11 +347,18 @@ func (s *Server) handleReader(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if !a.Read {
-		_ = s.store.SetRead(id, true)
-		a.Read = true
+	switch a.Status {
+	case db.StatusPending, db.StatusFailed:
+		s.render(w, "reader.html", map[string]any{"A": a})
+	default:
+		if !a.Read {
+			if err := s.store.SetRead(id, true); err != nil {
+				log.Printf("mark read %d: %v", id, err)
+			}
+			a.Read = true
+		}
+		s.render(w, "reader.html", map[string]any{"A": a})
 	}
-	s.render(w, "reader.html", map[string]any{"A": a})
 }
 
 func (s *Server) handleToggleRead(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +377,11 @@ func (s *Server) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	_ = s.store.SetRead(id, !a.Read)
+	if err := s.store.SetRead(id, !a.Read); err != nil {
+		log.Printf("set read %d: %v", id, err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -254,16 +391,38 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	_ = s.store.Delete(id)
+	if err := s.store.Delete(id); err != nil {
+		log.Printf("delete %d: %v", id, err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	go s.pruneMedia()
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) archiveURL(url string) (int64, error) {
-	a, err := archive.Fetch(url, s.mediaDir)
+// handleRetry re-enqueues a failed (or ready) article for a fresh fetch.
+func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		return 0, err
+		http.NotFound(w, r)
+		return
 	}
-	return s.store.Save(a)
+	a, err := s.store.Get(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+		} else {
+			log.Printf("get article %d: %v", id, err)
+			http.Error(w, "database error", http.StatusInternalServerError)
+		}
+		return
+	}
+	if _, err := s.enqueue(a.URL); err != nil {
+		log.Printf("retry %d: %v", id, err)
+		http.Error(w, "could not queue retry: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/article/%d", id), http.StatusSeeOther)
 }
 
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
