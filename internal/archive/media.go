@@ -17,6 +17,7 @@ import (
 
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+	"github.com/ramuthumu/gostash/internal/srcset"
 )
 
 // ProcessAndDownloadMedia parses HTML content, downloads all images to mediaDir,
@@ -245,71 +246,27 @@ func resolveHTTP(s string, base *url.URL) string {
 	return ""
 }
 
-type srcsetCandidate struct {
-	rawURL     string
-	descriptor string
-}
-
 func parseSrcsetURLs(val string) []string {
 	var urls []string
-	for _, c := range parseSrcsetCandidates(val) {
-		if c.rawURL != "" {
-			urls = append(urls, c.rawURL)
-		}
+	for _, c := range srcset.Parse(val) {
+		urls = append(urls, c.URL)
 	}
 	return urls
 }
 
 func rewriteSrcsetWithMedia(val string, base *url.URL, urlToMedia map[string]string) string {
 	var parts []string
-	for _, c := range parseSrcsetCandidates(val) {
-		resolved := resolveHTTP(c.rawURL, base)
-		u := c.rawURL
+	for _, c := range srcset.Parse(val) {
+		resolved := resolveHTTP(c.URL, base)
+		u := c.URL
 		if local, ok := urlToMedia[resolved]; ok {
 			u = local
 		}
-		if c.descriptor != "" {
-			parts = append(parts, u+" "+c.descriptor)
+		if c.Desc != "" {
+			parts = append(parts, u+" "+c.Desc)
 		} else {
 			parts = append(parts, u)
 		}
 	}
 	return strings.Join(parts, ", ")
-}
-
-func parseSrcsetCandidates(s string) []srcsetCandidate {
-	var res []srcsetCandidate
-	s = strings.TrimSpace(s)
-	for len(s) > 0 {
-		// skip leading commas or spaces
-		s = strings.TrimLeft(s, " \t\r\n,")
-		if s == "" {
-			break
-		}
-		// find next whitespace
-		spaceIdx := strings.IndexAny(s, " \t\r\n")
-		var rawURL, rest string
-		if spaceIdx == -1 {
-			rawURL = strings.TrimRight(s, ",")
-			rest = ""
-		} else {
-			rawURL = s[:spaceIdx]
-			rest = strings.TrimSpace(s[spaceIdx:])
-		}
-		var desc string
-		if rest != "" {
-			commaIdx := strings.IndexByte(rest, ',')
-			if commaIdx == -1 {
-				desc = strings.TrimSpace(rest)
-				s = ""
-			} else {
-				desc = strings.TrimSpace(rest[:commaIdx])
-				s = rest[commaIdx+1:]
-			}
-		} else {
-			s = ""
-		}
-		res = append(res, srcsetCandidate{rawURL: rawURL, descriptor: desc})
-	}
-	return res
 }
