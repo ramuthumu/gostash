@@ -320,3 +320,54 @@ html.theme-dark   { --bg: #1a1a1a; --fg: #e6e6e6; --muted: #999; --card: #242424
 .rsvp-controls button.primary { background: var(--accent); border-color: var(--accent); }
 .rsvp-wpm { color: #ccc; font-variant-numeric: tabular-nums; min-width: 5rem; }
 #rsvp-slider { width: 100%; accent-color: var(--accent); }
+/* ---------- Archive status states (async archiving) ---------- */
+.status-chip {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  vertical-align: middle;
+}
+.status-chip.pending {
+  background: rgba(234, 179, 8, 0.18);
+  color: #92600a;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+.status-chip.failed {
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  text-decoration: none;
+}
+.status-chip.failed:hover { text-decoration: underline; }
+
+.reader .status-card {
+  margin: 2.5rem 0;
+  padding: 2rem;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.reader .status-card.failed { border-color: rgba(220, 38, 38, 0.4); }
+.reader .status-card .fetch-error {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85em;
+  opacity: 0.8;
+  max-width: 60ch;
+  margin: 0.75rem auto 1.25rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  margin-bottom: 0.75rem;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: gostash-spin 0.8s linear infinite;
+}
+@keyframes gostash-spin { to { transform: rotate(360deg); } }

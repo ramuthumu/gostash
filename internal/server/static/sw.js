@@ -1,5 +1,5 @@
 // GoStash Service Worker
-const CACHE_NAME = 'gostash-v2';
+const CACHE_NAME = 'gostash-v3';
 const STATIC_ASSETS = [
   '/static/style.css',
   '/static/theme.js',
@@ -71,12 +71,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For HTML pages / articles: Network-First
+  // For HTML pages / articles: Network-First, caching successful responses so
+  // previously visited pages remain readable offline.
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match(event.request);
-      })
+      fetch(event.request).then((resp) => {
+        if (resp && resp.ok) {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return resp;
+      }).catch(() => caches.match(event.request))
     );
   }
 });

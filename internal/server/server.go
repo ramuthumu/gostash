@@ -580,7 +580,6 @@ func rewriteSrcset(val string) string {
 	return strings.Join(parts, ", ")
 }
 
-
 // handleImageProxy fetches an external image server-side with a spoofed Referer
 // (the image host's own origin) so hotlink-protected CDNs serve it, then streams
 // the bytes back to the browser. Gated to image/* content types; rejects

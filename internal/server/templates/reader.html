@@ -84,6 +84,24 @@
 
   <article>
     <h1 class="article-title">{{if .A.Title}}{{.A.Title}}{{else}}{{.A.URL}}{{end}}</h1>
+    {{if eq .A.Status "pending"}}
+    <p class="source">{{.A.URL}}</p>
+    <div class="status-card">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Archiving this page&hellip; usually a few seconds.</p>
+      <p><a href="{{.A.URL}}" target="_blank" rel="noopener">Open the original ↗</a></p>
+    </div>
+    <script>setTimeout(function () { location.reload(); }, 3000);</script>
+    {{else if eq .A.Status "failed"}}
+    <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}</p>
+    <div class="status-card failed">
+      <p>⚠️ Archiving failed:</p>
+      <pre class="fetch-error">{{.A.FetchError}}</pre>
+      <form method="POST" action="/article/{{.A.ID}}/retry">
+        <button type="submit">Try again</button>
+      </form>
+    </div>
+    {{else}}
     {{if .A.Author}}<p class="byline">{{.A.Author}}</p>{{end}}
     <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}{{if .A.WordCount}} · <span class="reading-time">{{.A.ReadingTimeMinutes}} min read</span> · <span class="word-count">{{.A.WordCount}} words</span>{{end}}</p>
 
@@ -94,15 +112,13 @@
         {{end}}
       {{end}}
     </div>
+    {{end}}
   </article>
 
-  <!-- Hidden plain text source for the speed reader -->
-  <div id="rsvp-source" hidden>{{if .A.TextContent}}{{.A.TextContent}}{{else}}{{.A.Title}}{{end}}</div>
-
   <footer class="reader-footer">
-    <form method="POST" action="/article/{{.A.ID}}/read" style="display:inline">
+    {{if eq .A.Status "ready"}}<form method="POST" action="/article/{{.A.ID}}/read" style="display:inline">
       <button type="submit">{{if .A.Read}}Mark unread{{else}}Mark read{{end}}</button>
-    </form>
+    </form>{{end}}
     <form method="POST" action="/article/{{.A.ID}}/delete" style="display:inline"
           onsubmit="return confirm('Delete this article?');">
       <button type="submit" class="danger">Delete</button>

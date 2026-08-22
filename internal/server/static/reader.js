@@ -223,15 +223,10 @@
   }
 
   function open() {
-    // Prefer the rendered article's innerText (respects layout spacing);
-    // fall back to the hidden extracted text source.
+    // Speed-read the rendered article's text (innerText respects layout).
     var art = document.getElementById("article-content");
     var text = art ? (art.innerText || art.textContent) : "";
-    if (!text || text.length < 2) {
-      var src = document.getElementById("rsvp-source");
-      text = src ? src.textContent : "";
-    }
-    if (!text) { alert("No readable text to speed-read."); return; }
+    if (!text || text.length < 2) { alert("No readable text to speed-read."); return; }
     words = tokenize(text);
     index = 0;
     setWpm(parseInt(slider.value, 10) || 350);
