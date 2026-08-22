@@ -11,13 +11,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ramuthumu/gostash/internal/srcset"
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
-	"github.com/ramuthumu/gostash/internal/srcset"
 )
 
 // ProcessAndDownloadMedia parses HTML content, downloads all images to mediaDir,
@@ -269,4 +270,35 @@ func rewriteSrcsetWithMedia(val string, base *url.URL, urlToMedia map[string]str
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// mediaFileRe matches exactly the filenames downloadImage writes:
+// <sha256-hex>.<ext>. PruneMedia never touches anything else, so files a user
+// placed in the media dir survive.
+var mediaFileRe = regexp.MustCompile(`^[a-f0-9]{64}\.[a-z0-9]{1,8}$`)
+
+// PruneMedia deletes files in mediaDir that no stored article references
+// (see db.Store.MediaRefs). Returns the removed filenames.
+func PruneMedia(mediaDir string, referenced map[string]bool) ([]string, error) {
+	entries, err := os.ReadDir(mediaDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var removed []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasSuffix(name, ".tmp") || referenced[name] || !mediaFileRe.MatchString(name) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(mediaDir, name)); err == nil {
+			removed = append(removed, name)
+		}
+	}
+	return removed, nil
 }

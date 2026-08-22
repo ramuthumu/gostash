@@ -70,15 +70,46 @@ func SafeClient(timeout time.Duration) *http.Client {
 	}
 }
 
+// CanonicalizeURL normalizes a submitted URL for storage and deduplication:
+// scheme-less input gets https://, the fragment is dropped (it never changes
+// server content), the host is lowercased, and explicit default ports are
+// removed. Unparseable input is returned trimmed so callers surface the
+// upstream fetch error instead of failing here.
+func CanonicalizeURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return rawURL
+	}
+	lower := strings.ToLower(rawURL)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		rawURL = "https://" + rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	// Fragments never change server-side content; keeping them would defeat
+	// the UNIQUE(url) dedupe (same article saved from #section1 and #top).
+	u.Fragment = ""
+	u.RawFragment = ""
+	// Lowercase host, drop explicit default ports.
+	host := strings.ToLower(u.Host)
+	switch {
+	case u.Scheme == "http" && strings.HasSuffix(host, ":80"):
+		host = strings.TrimSuffix(host, ":80")
+	case u.Scheme == "https" && strings.HasSuffix(host, ":443"):
+		host = strings.TrimSuffix(host, ":443")
+	}
+	u.Host = host
+	return u.String()
+}
+
 // Fetch downloads the page at rawURL, extracts a readable article, and
 // downloads all images locally into mediaDir (rewriting image tags to /media/...).
 func Fetch(rawURL string, mediaDir string) (db.Article, error) {
-	rawURL = strings.TrimSpace(rawURL)
+	rawURL = CanonicalizeURL(rawURL)
 	if rawURL == "" {
 		return db.Article{}, fmt.Errorf("empty url")
-	}
-	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-		rawURL = "https://" + rawURL
 	}
 
 	client := SafeClient(30 * time.Second)
