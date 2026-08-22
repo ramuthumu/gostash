@@ -91,7 +91,7 @@
       <p>Archiving this page&hellip; usually a few seconds.</p>
       <p><a href="{{.A.URL}}" target="_blank" rel="noopener">Open the original ↗</a></p>
     </div>
-    <script>setTimeout(function () { location.reload(); }, 3000);</script>
+    <script>setTimeout(function () { location.reload(); }, 800);</script>
     {{else if eq .A.Status "failed"}}
     <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}</p>
     <div class="status-card failed">
