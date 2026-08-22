@@ -46,7 +46,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "==> Building static Linux/$GOARCH binary"
 GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 \
-  go build -trimpath -ldflags="-s -w" -o "$TMP/gostash" .
+  go build -trimpath -ldflags="-s -w -X main.version=$(git describe --tags --always --dirty)" -o "$TMP/gostash" .
 
 echo "==> Preparing remote $REMOTE:$REMOTE_DIR"
 ssh "$REMOTE" "sudo mkdir -p $REMOTE_DIR_ESC && sudo chown -R \$USER:\$USER $REMOTE_DIR_ESC"
