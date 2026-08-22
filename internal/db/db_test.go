@@ -125,3 +125,99 @@ func TestStoreOperations(t *testing.T) {
 		t.Errorf("expected 0 results for deleted article, got %d", len(searchRes))
 	}
 }
+
+func TestAsyncLifecycle(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+
+	id, err := store.Enqueue("https://example.com/pending")
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+	pending, err := store.PendingArticles()
+	if err != nil || len(pending) != 1 || pending[0].ID != id {
+		t.Fatalf("expected one pending article id=%d, got %+v err=%v", id, pending, err)
+	}
+	// A pending row must not appear as a readable list entry with content.
+	got, err := store.Get(id)
+	if err != nil || got.Status != StatusPending {
+		t.Fatalf("expected pending status, got %+v err=%v", got, err)
+	}
+
+	if err := store.Complete(id, Article{
+		URL:         "https://example.com/pending",
+		Title:       "Done",
+		TextContent: "one two three four five",
+	}); err != nil {
+		t.Fatalf("Complete failed: %v", err)
+	}
+	got, err = store.Get(id)
+	if err != nil || got.Status != StatusReady || got.Title != "Done" {
+		t.Fatalf("expected ready article, got %+v err=%v", got, err)
+	}
+	if got.WordCount != 5 || got.ReadingTimeMinutes < 1 {
+		t.Errorf("stats not persisted: WordCount=%d ReadingTime=%d", got.WordCount, got.ReadingTimeMinutes)
+	}
+
+	// Fail path stores the reason and the status survives round trips.
+	id2, err := store.Enqueue("https://example.com/doomed")
+	if err != nil {
+		t.Fatalf("Enqueue doomed failed: %v", err)
+	}
+	if err := store.Fail(id2, "HTTP 404"); err != nil {
+		t.Fatalf("Fail failed: %v", err)
+	}
+	got, err = store.Get(id2)
+	if err != nil || got.Status != StatusFailed || got.FetchError != "HTTP 404" {
+		t.Fatalf("expected failed status with error, got %+v err=%v", got, err)
+	}
+
+	// Re-enqueueing an existing URL flips it back to pending.
+	if _, err := store.Enqueue("https://example.com/pending"); err != nil {
+		t.Fatalf("re-Enqueue failed: %v", err)
+	}
+	got, _ = store.Get(id)
+	if got.Status != StatusPending {
+		t.Errorf("expected re-enqueued article to be pending, got %s", got.Status)
+	}
+}
+
+func TestMediaRefs(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+	a1 := Article{
+		URL:         "https://example.com/1",
+		Title:       "One",
+		TextContent: "text",
+		ContentHTML: `<p><img src="/media/aaaa.bbb"><img src="https://x/y.png"></p>`,
+	}
+	a2 := Article{
+		URL:         "https://example.com/2",
+		Title:       "Two",
+		TextContent: "text",
+		ContentHTML: `<img src="/media/cccc.png">`,
+	}
+	for _, a := range []Article{a1, a2} {
+		if _, err := store.Save(a); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+	}
+	refs, err := store.MediaRefs()
+	if err != nil {
+		t.Fatalf("MediaRefs failed: %v", err)
+	}
+	if !refs["aaaa.bbb"] || !refs["cccc.png"] {
+		t.Errorf("missing expected refs: %v", refs)
+	}
+	for name := range refs {
+		if name == "y.png" {
+			t.Errorf("remote image wrongly captured as media ref: %v", refs)
+		}
+	}
+}

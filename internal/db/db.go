@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +14,15 @@ const (
 	FilterUnread  = "unread"
 	FilterArchive = "archive"
 	FilterAll     = "all"
+)
+
+// Article lifecycle statuses. Articles are created in StatusPending by the
+// async archiving pipeline, move to StatusReady once content is extracted,
+// or StatusFailed if the fetch/extract failed (with FetchError set).
+const (
+	StatusPending = "pending"
+	StatusReady   = "ready"
+	StatusFailed  = "failed"
 )
 
 type Article struct {
@@ -26,10 +37,18 @@ type Article struct {
 	Read               bool
 	WordCount          int
 	ReadingTimeMinutes int
+	Status             string
+	FetchError         string
 }
 
 // CalculateStats computes WordCount and ReadingTimeMinutes from TextContent.
+// Stored stats win: rows saved since the word_count column exists already
+// carry them, so computation only happens as a fallback for legacy rows and
+// freshly extracted articles.
 func (a *Article) CalculateStats() {
+	if a.WordCount > 0 {
+		return
+	}
 	text := strings.TrimSpace(a.TextContent)
 	if text == "" {
 		text = strings.TrimSpace(a.Excerpt)
@@ -80,7 +99,11 @@ func Open(path string) (*Store, error) {
 		content_html  TEXT,
 		text_content  TEXT,
 		archived_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-		read          INTEGER DEFAULT 0
+		read          INTEGER DEFAULT 0,
+		status        TEXT NOT NULL DEFAULT 'ready',
+		fetch_error   TEXT NOT NULL DEFAULT '',
+		word_count    INTEGER NOT NULL DEFAULT 0,
+		reading_time  INTEGER NOT NULL DEFAULT 0
 	);
 
 	CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
@@ -112,6 +135,18 @@ func Open(path string) (*Store, error) {
 	if _, err := d.Exec(schema); err != nil {
 		return nil, err
 	}
+	// Migrate databases created before these columns existed.
+	migrations := []struct{ col, def string }{
+		{"status", "TEXT NOT NULL DEFAULT 'ready'"},
+		{"fetch_error", "TEXT NOT NULL DEFAULT ''"},
+		{"word_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"reading_time", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, m := range migrations {
+		if err := ensureColumn(d, "articles", m.col, m.def); err != nil {
+			return nil, fmt.Errorf("migrate %s: %w", m.col, err)
+		}
+	}
 
 	// Rebuild FTS index if table exists but FTS was newly added or empty
 	var countArticles, countFTS int
@@ -124,25 +159,138 @@ func Open(path string) (*Store, error) {
 	return &Store{db: d}, nil
 }
 
+// ensureColumn adds col to table with the given DDL fragment if the column is
+// missing. Only called with package-constant identifiers.
+func ensureColumn(d *sql.DB, table, col, def string) error {
+	rows, err := d.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == col {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = d.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, def))
+	return err
+}
+
 func (s *Store) Close() error { return s.db.Close() }
 
+// Save inserts or refreshes a fully-extracted article (StatusReady) and
+// returns its id in one round trip via RETURNING.
 func (s *Store) Save(a Article) (int64, error) {
-	_, err := s.db.Exec(`
-		INSERT INTO articles(url, title, author, excerpt, content_html, text_content)
-		VALUES (?, ?, ?, ?, ?, ?)
+	a.CalculateStats()
+	var id int64
+	err := s.db.QueryRow(`
+		INSERT INTO articles(url, title, author, excerpt, content_html, text_content, status, fetch_error, word_count, reading_time)
+		VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)
 		ON CONFLICT(url) DO UPDATE SET
 			title=excluded.title,
 			author=excluded.author,
 			excerpt=excluded.excerpt,
 			content_html=excluded.content_html,
-			text_content=excluded.text_content`,
-		a.URL, a.Title, a.Author, a.Excerpt, a.ContentHTML, a.TextContent)
-	if err != nil {
+			text_content=excluded.text_content,
+			status=excluded.status,
+			fetch_error='',
+			word_count=excluded.word_count,
+			reading_time=excluded.reading_time
+		RETURNING id`,
+		a.URL, a.Title, a.Author, a.Excerpt, a.ContentHTML, a.TextContent, StatusReady, a.WordCount, a.ReadingTimeMinutes).Scan(&id)
+	return id, err
+}
+
+// Enqueue marks url for archiving: it inserts a pending row, or flips an
+// existing row back to pending so the worker refetches and refreshes it.
+// Returns the row id; status is always StatusPending on return.
+func (s *Store) Enqueue(rawURL string) (int64, error) {
+	if _, err := s.db.Exec(`
+		INSERT INTO articles(url, status) VALUES (?, ?)
+		ON CONFLICT(url) DO UPDATE SET status=?, fetch_error=''`,
+		rawURL, StatusPending, StatusPending); err != nil {
 		return 0, err
 	}
 	var id int64
-	err = s.db.QueryRow("SELECT id FROM articles WHERE url = ?", a.URL).Scan(&id)
+	err := s.db.QueryRow(`SELECT id FROM articles WHERE url = ?`, rawURL).Scan(&id)
 	return id, err
+}
+
+// Complete stores extraction results for a pending article and marks it ready.
+func (s *Store) Complete(id int64, a Article) error {
+	a.CalculateStats()
+	_, err := s.db.Exec(`
+		UPDATE articles SET
+			title=?, author=?, excerpt=?, content_html=?, text_content=?,
+			status=?, fetch_error='', word_count=?, reading_time=?
+		WHERE id=?`,
+		a.Title, a.Author, a.Excerpt, a.ContentHTML, a.TextContent,
+		StatusReady, a.WordCount, a.ReadingTimeMinutes, id)
+	return err
+}
+
+// Fail marks an article failed with a human-readable reason (truncated).
+func (s *Store) Fail(id int64, errMsg string) error {
+	if len(errMsg) > 500 {
+		errMsg = errMsg[:500]
+	}
+	_, err := s.db.Exec(`UPDATE articles SET status=?, fetch_error=? WHERE id=?`, StatusFailed, errMsg, id)
+	return err
+}
+
+// PendingArticles lists rows stuck in pending — used to resume workers that a
+// crash interrupted mid-fetch.
+func (s *Store) PendingArticles() ([]Article, error) {
+	rows, err := s.db.Query(`SELECT id, url FROM articles WHERE status = ? ORDER BY id`, StatusPending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Article
+	for rows.Next() {
+		var a Article
+		if err := rows.Scan(&a.ID, &a.URL); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// mediaRefRe matches filenames as written into content_html by the archiver's
+// media downloader (/media/<sha256>.<ext>).
+var mediaRefRe = regexp.MustCompile(`/media/([A-Za-z0-9][A-Za-z0-9._-]{0,199})`)
+
+// MediaRefs returns every media filename referenced by any stored article.
+// Callers use it to garbage-collect unreferenced files from the media dir.
+func (s *Store) MediaRefs() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT content_html FROM articles WHERE content_html IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs := make(map[string]bool)
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		for _, m := range mediaRefRe.FindAllStringSubmatch(h, -1) {
+			refs[m[1]] = true
+		}
+	}
+	return refs, rows.Err()
 }
 
 func (s *Store) Counts() (Counts, error) {
@@ -157,11 +305,37 @@ func (s *Store) Counts() (Counts, error) {
 	return c, err
 }
 
+func listQuery(filter string, withFTS bool) string {
+	readCond := ""
+	switch filter {
+	case FilterArchive:
+		readCond = " AND a.read = 1"
+	case FilterUnread:
+		readCond = " AND a.read = 0"
+	}
+	order := "ORDER BY a.archived_at DESC"
+	match := ""
+	if withFTS {
+		match = "JOIN articles_fts ON a.id = articles_fts.rowid WHERE articles_fts MATCH ?"
+		order = "ORDER BY rank, a.archived_at DESC"
+	} else {
+		match = "WHERE 1=1"
+	}
+	return `
+		SELECT a.id, a.url, a.title, a.author, a.excerpt, a.archived_at, a.read,
+		       a.status, a.fetch_error, a.word_count, a.reading_time
+		FROM articles a
+		` + match + readCond + `
+		` + order
+}
+
+// List returns articles for a filter/search combination. It deliberately does
+// not select text_content/content_html: persisted word counts make them
+// unnecessary here, and they dominate memory at scale.
 func (s *Store) List(filter string, query string) ([]Article, error) {
 	query = strings.TrimSpace(query)
-	var q string
-	var args []any
 
+	var ftsArg string
 	if query != "" {
 		tokens := strings.Fields(query)
 		var ftsQuery strings.Builder
@@ -172,49 +346,10 @@ func (s *Store) List(filter string, query string) ([]Article, error) {
 			}
 			ftsQuery.WriteString(`"` + clean + `"*`)
 		}
-		formattedQuery := ftsQuery.String()
-
-		switch filter {
-		case FilterArchive:
-			q = `
-				SELECT a.id, a.url, a.title, a.author, a.excerpt, a.text_content, a.archived_at, a.read
-				FROM articles a
-				JOIN articles_fts ON a.id = articles_fts.rowid
-				WHERE articles_fts MATCH ? AND a.read = 1
-				ORDER BY rank, a.archived_at DESC
-			`
-			args = append(args, formattedQuery)
-		case FilterAll:
-			q = `
-				SELECT a.id, a.url, a.title, a.author, a.excerpt, a.text_content, a.archived_at, a.read
-				FROM articles a
-				JOIN articles_fts ON a.id = articles_fts.rowid
-				WHERE articles_fts MATCH ?
-				ORDER BY rank, a.archived_at DESC
-			`
-			args = append(args, formattedQuery)
-		default: // FilterUnread
-			q = `
-				SELECT a.id, a.url, a.title, a.author, a.excerpt, a.text_content, a.archived_at, a.read
-				FROM articles a
-				JOIN articles_fts ON a.id = articles_fts.rowid
-				WHERE articles_fts MATCH ? AND a.read = 0
-				ORDER BY rank, a.archived_at DESC
-			`
-			args = append(args, formattedQuery)
-		}
-	} else {
-		switch filter {
-		case FilterArchive:
-			q = `SELECT id, url, title, author, excerpt, text_content, archived_at, read FROM articles WHERE read = 1 ORDER BY archived_at DESC`
-		case FilterAll:
-			q = `SELECT id, url, title, author, excerpt, text_content, archived_at, read FROM articles ORDER BY archived_at DESC`
-		default: // FilterUnread
-			q = `SELECT id, url, title, author, excerpt, text_content, archived_at, read FROM articles WHERE read = 0 ORDER BY archived_at DESC`
-		}
+		ftsArg = ftsQuery.String()
 	}
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.Query(listQuery(filter, ftsArg != ""), nullArgs(ftsArg)...)
 	if err != nil {
 		return nil, err
 	}
@@ -223,27 +358,53 @@ func (s *Store) List(filter string, query string) ([]Article, error) {
 	var out []Article
 	for rows.Next() {
 		var a Article
-		var title, author, excerpt, textContent sql.NullString
-		if err := rows.Scan(&a.ID, &a.URL, &title, &author, &excerpt, &textContent, &a.ArchivedAt, &a.Read); err != nil {
+		var title, author, excerpt, status, fetchError sql.NullString
+		if err := rows.Scan(&a.ID, &a.URL, &title, &author, &excerpt, &a.ArchivedAt, &a.Read,
+			&status, &fetchError, &a.WordCount, &a.ReadingTimeMinutes); err != nil {
 			return nil, err
 		}
 		a.Title = title.String
 		a.Author = author.String
 		a.Excerpt = excerpt.String
-		a.TextContent = textContent.String
-		a.CalculateStats()
+		a.Status = status.String
+		a.FetchError = fetchError.String
+		if a.Status == "" {
+			a.Status = StatusReady // pre-migration rows
+		}
+		a.CalculateStats() // fallback only; stored stats win
 		out = append(out, a)
 	}
 	return out, rows.Err()
 }
 
+// nullArgs maps "" to no variadic args so the non-FTS query gets zero params.
+func nullArgs(fts string) []any {
+	if fts == "" {
+		return nil
+	}
+	return []any{fts}
+}
+
 func (s *Store) Get(id int64) (Article, error) {
 	var a Article
-	var author sql.NullString
-	err := s.db.QueryRow(`SELECT id, url, title, author, excerpt, content_html, text_content, archived_at, read FROM articles WHERE id = ?`, id).
-		Scan(&a.ID, &a.URL, &a.Title, &author, &a.Excerpt, &a.ContentHTML, &a.TextContent, &a.ArchivedAt, &a.Read)
+	var title, author, excerpt, contentHTML, textContent, status, fetchError sql.NullString
+	err := s.db.QueryRow(`
+		SELECT id, url, title, author, excerpt, content_html, text_content,
+		       archived_at, read, status, fetch_error, word_count, reading_time
+		FROM articles WHERE id = ?`, id).
+		Scan(&a.ID, &a.URL, &title, &author, &excerpt, &contentHTML, &textContent,
+			&a.ArchivedAt, &a.Read, &status, &fetchError, &a.WordCount, &a.ReadingTimeMinutes)
+	a.Title = title.String
 	a.Author = author.String
-	a.CalculateStats()
+	a.Excerpt = excerpt.String
+	a.ContentHTML = contentHTML.String
+	a.TextContent = textContent.String
+	a.Status = status.String
+	a.FetchError = fetchError.String
+	if a.Status == "" {
+		a.Status = StatusReady // pre-migration rows
+	}
+	a.CalculateStats() // fallback only; stored stats win
 	return a, err
 }
 
