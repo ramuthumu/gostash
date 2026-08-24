@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -125,5 +126,51 @@ func TestPWAStaticFilesEmbedded(t *testing.T) {
 	}
 	if !strings.Contains(string(sw), "CACHE_NAME") {
 		t.Errorf("sw.js missing CACHE_NAME: %s", string(sw))
+	}
+}
+
+func TestBookmarkletRejectsSelfHost(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://gostash.telugumeme.com/", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	html := string(bookmarkletURL(r))
+	if !strings.Contains(html, "javascript:") {
+		t.Fatalf("bookmarklet missing javascript: href: %s", html)
+	}
+	// Scheme must honor the forwarded proto (TLS terminates at Traefik).
+	if !strings.Contains(html, "https://gostash.telugumeme.com/save?url=") {
+		t.Errorf("bookmarklet base should use https behind proxy: %s", html)
+	}
+	// The JS must refuse to run on the instance's own host.
+	if !strings.Contains(html, "location.host===i") {
+		t.Errorf("bookmarklet missing self-host guard: %s", html)
+	}
+}
+
+func TestIsSelfURL(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://gostash.telugumeme.com/", nil)
+	r.Host = "gostash.telugumeme.com"
+	t.Setenv("READLATER_PUBLIC_URL", "https://later.example.com")
+
+	self := []string{
+		"https://gostash.telugumeme.com/",
+		"https://gostash.telugumeme.com/article/42",
+		"http://gostash.telugumeme.com/",           // scheme-insensitive
+		"https://later.example.com/save?url=x",     // READLATER_PUBLIC_URL host
+		"https://GOSTASH.TELUGUMEME.COM/article/1", // host comparison is case-insensitive
+	}
+	for _, u := range self {
+		if !isSelfURL(u, r) {
+			t.Errorf("isSelfURL(%q) = false, want true", u)
+		}
+	}
+	other := []string{
+		"https://example.com/article",
+		"https://gostash.telugumeme.com.evil.com/",
+		"",
+	}
+	for _, u := range other {
+		if isSelfURL(u, r) {
+			t.Errorf("isSelfURL(%q) = true, want false", u)
+		}
 	}
 }

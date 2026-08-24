@@ -195,6 +195,11 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	if isSelfURL(rawURL, r) {
+		log.Printf("rejected self-archive attempt: %s", rawURL)
+		s.renderListError(w, r, "That's this Read Later instance itself — paste the article you want to save.")
+		return
+	}
 	id, err := s.enqueue(rawURL)
 	if err != nil {
 		log.Printf("enqueue %s: %v", rawURL, err)
@@ -320,6 +325,10 @@ func (s *Server) handleSaveBookmarklet(w http.ResponseWriter, r *http.Request) {
 	}
 	if rawURL == "" {
 		http.Error(w, "missing url", http.StatusBadRequest)
+		return
+	}
+	if isSelfURL(rawURL, r) {
+		http.Error(w, "that is this Read Later instance itself — open the article you want to save, then click the bookmarklet", http.StatusBadRequest)
 		return
 	}
 	id, err := s.enqueue(rawURL)
@@ -455,6 +464,12 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 // otherwise neutralize the javascript: scheme to "#ZgotmplZ" (verified).
 // READLATER_PUBLIC_URL, if set, overrides the base (scheme://host) used in the
 // bookmarklet — useful behind a reverse proxy where you want a stable URL.
+//
+// The generated JS refuses to fire on gostash's own pages (location.host
+// matches), so clicking the bookmarklet while ON the archive cannot save the
+// archive itself. Existing bookmarks already in a browser still carry the old
+// unguarded JS — handleSaveBookmarklet/handleSubmit re-check the target URL
+// server-side as the real safety net.
 func bookmarkletURL(r *http.Request) template.HTML {
 	base := ""
 	if pub := os.Getenv("READLATER_PUBLIC_URL"); pub != "" {
@@ -465,14 +480,51 @@ func bookmarkletURL(r *http.Request) template.HTML {
 		if host == "" {
 			host = "localhost:8090"
 		}
+		// r.TLS is nil behind a reverse proxy (Traefik/Caddy terminate TLS);
+		// trust its X-Forwarded-Proto instead so the bookmarklet uses https
+		// on deployed instances.
 		scheme := "http"
 		if r.TLS != nil {
 			scheme = "https"
 		}
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "https" || proto == "http" {
+			scheme = proto
+		}
 		base = scheme + "://" + host
 	}
-	js := "javascript:void(location.href='" + base + "/save?url='+encodeURIComponent(location.href));"
+	selfHost := ""
+	if u, err := url.Parse(base); err == nil {
+		selfHost = u.Host
+	}
+	js := "javascript:(function(){var i='" + selfHost + "';" +
+		"if(location.host===i){alert('Read Later: open the article you want to save first.');" +
+		"}else{location.href='" + base + "/save?url='+encodeURIComponent(location.href);}})()"
 	return template.HTML(`<a class="bookmarklet-link" href="` + html.EscapeString(js) + `">📑 Read Later</a>`)
+}
+
+// isSelfURL reports whether raw points at this gostash instance itself —
+// same host as the request or READLATER_PUBLIC_URL. The bookmarklet JS guards
+// in-browser, but bookmarks installed before that guard keep sending the old
+// unguarded script; this server-side check is the durable stop against
+// archiving the archive (a self-fetch loop).
+func isSelfURL(raw string, r *http.Request) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	target := strings.ToLower(u.Host)
+	for _, candidate := range []string{r.Host, os.Getenv("READLATER_PUBLIC_URL")} {
+		if candidate == "" {
+			continue
+		}
+		if cu, err := url.Parse(candidate); err == nil && cu.Host != "" {
+			candidate = cu.Host
+		}
+		if target == strings.ToLower(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizePolicy is a bluemonday allowlist for rendered article HTML. It strips
