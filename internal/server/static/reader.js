@@ -421,8 +421,16 @@
   }
 
   // ---------- Read aloud (TTS) ----------
+  // Two modes: "local" (default) uses the device's own speech synthesis —
+  // Siri voices on iPhone, macOS system voices (install an Enhanced voice
+  // for best quality) — free and natural, needs the tab open. "server"
+  // (READLATER_TTS_KEY configured) streams Azure Neural mp3 that keeps
+  // playing in the background.
   var ttsBtn = document.getElementById("tts-btn");
-  var ttsAudio = null;
+  var ttsAudio = null; // server mode
+  var ttsUtter = null; // local mode
+
+  function ttsMode() { return ttsBtn ? (ttsBtn.dataset.mode || "local") : "local"; }
 
   function stopTTS() {
     if (ttsAudio) {
@@ -430,26 +438,85 @@
       ttsAudio.src = "";
       ttsAudio = null;
     }
+    if (window.speechSynthesis) {
+      speechSynthesis.cancel();
+    }
+    ttsUtter = null;
     if (ttsBtn) {
       ttsBtn.textContent = "🔊 Listen";
       ttsBtn.classList.remove("tts-playing");
     }
   }
 
-  if (ttsBtn) {
-    ttsBtn.addEventListener("click", function () {
-      if (ttsAudio) {
-        stopTTS();
-        return;
+  // Script evidence identical in spirit to the server's voiceForText: a
+  // language wins only with enough non-Latin runes, so English articles
+  // quoting a few Telugu words keep an English voice.
+  function guessLang(text) {
+    var te = 0, hi = 0;
+    for (var i = 0; i < text.length && i < 4000; i++) {
+      var c = text.charCodeAt(i);
+      if (c >= 0x0C00 && c <= 0x0C7F) te++;
+      else if (c >= 0x0900 && c <= 0x097F) hi++;
+    }
+    if (te >= 40) return "te-IN";
+    if (hi >= 40) return "hi-IN";
+    return "en";
+  }
+
+  function pickVoice(lang, voices) {
+    if (lang !== "en") {
+      var want = lang.toLowerCase();
+      var match = voices.filter(function (v) { return v.lang && v.lang.toLowerCase().indexOf(want) === 0; });
+      if (match.length) return match[0];
+    }
+    var preferred = ["Samantha", "Karen", "Moira", "Tessa", "Alex", "Google US English", "Daniel", "Zira"];
+    for (var i = 0; i < preferred.length; i++) {
+      for (var j = 0; j < voices.length; j++) {
+        if (voices[j].name === preferred[i]) return voices[j];
       }
-      // Speed reader and TTS both take over the article; never both at once.
-      if (overlay && !overlay.hidden) {
-        close();
-      }
+    }
+    for (var k = 0; k < voices.length; k++) {
+      if (voices[k].default) return voices[k];
+    }
+    return null;
+  }
+
+  function speakLocal(text) {
+    if (!window.speechSynthesis) {
+      showToast("This browser has no speech support.");
+      stopTTS();
+      return;
+    }
+    var lang = guessLang(text);
+    var voices = window.speechSynthesis.getVoices();
+    var voice = pickVoice(lang, voices);
+    var chunks = text.split(/(?<=[.!?।\n])\s+/).filter(function (s) { return s.trim().length > 0; });
+    var last = chunks.length - 1;
+    chunks.forEach(function (chunk, idx) {
+      var u = new SpeechSynthesisUtterance(chunk);
+      if (voice) u.voice = voice;
+      u.lang = voice ? voice.lang : (lang === "en" ? "en-US" : lang);
+      u.rate = 1.0;
+      u.pitch = 1.0;
+      u.onerror = function (e) {
+        if (e.error && e.error !== "canceled" && e.error !== "interrupted") {
+          showToast("Speech error: " + e.error);
+          stopTTS();
+        }
+      };
+      if (idx === last) u.onend = stopTTS;
+      window.speechSynthesis.speak(u);
+    });
+    ttsUtter = voice ? voice : null;
+  }
+
+  function startTTS() {
+    if (overlay && !overlay.hidden) close();
+    ttsBtn.textContent = "⏹ Stop";
+    ttsBtn.classList.add("tts-playing");
+    if (ttsMode() === "server") {
       var id = readerContainer ? readerContainer.dataset.articleId : "";
-      if (!id) return;
-      ttsBtn.textContent = "⏹ Stop";
-      ttsBtn.classList.add("tts-playing");
+      if (!id) { showToast("Missing article id."); stopTTS(); return; }
       ttsAudio = new Audio("/article/" + id + "/tts");
       ttsAudio.addEventListener("ended", stopTTS);
       ttsAudio.addEventListener("error", function () {
@@ -460,6 +527,25 @@
         showToast("Playback blocked — try again.");
         stopTTS();
       });
+      return;
+    }
+    var art = document.getElementById("article-content");
+    var text = art ? (art.innerText || art.textContent) : "";
+    if (!text || text.length < 2) {
+      showToast("No readable text to read aloud.");
+      stopTTS();
+      return;
+    }
+    speakLocal(text);
+  }
+
+  if (ttsBtn) {
+    ttsBtn.addEventListener("click", function () {
+      if (ttsAudio || ttsUtter || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+        stopTTS();
+        return;
+      }
+      startTTS();
     });
   }
 

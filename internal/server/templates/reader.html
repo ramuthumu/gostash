@@ -24,7 +24,7 @@
       <a class="orig" href="{{.A.URL}}" target="_blank" rel="noopener">View original ↗</a>
       <button id="toc-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Table of contents" aria-label="Table of contents" hidden>📑 Outline</button>
       <button id="rsvp-open" type="button" title="Speed read (RSVP)" aria-label="Speed read">⚡ Speed read</button>
-      {{if .TTSEnabled}}<button id="tts-btn" type="button" title="Listen to this article" aria-label="Listen to this article">🔊 Listen</button>{{end}}
+      <button id="tts-btn" type="button" data-mode="{{if .TTSEnabled}}server{{else}}local{{end}}" title="Listen to this article" aria-label="Listen to this article">🔊 Listen</button>
       <button id="font-settings-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Font settings" aria-label="Font settings">Aa</button>
     </span>
   </header>

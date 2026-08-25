@@ -20,6 +20,9 @@ Built in Go. No external services, no tracking, no signup.
 - **Speed reader (RSVP)** — Spritz-style flashing words with focal-point (ORP)
   highlighting, adjustable WPM (150–900), smart punctuation pauses, and keyboard
   shortcuts (`Space` play/pause, `←/→` slower/faster, `Esc` close)
+- **Read aloud** — natural device voices by default (Siri on iPhone, macOS
+  system voices; no setup); optional Azure Neural upgrade for background
+  playback (`READLATER_TTS_KEY`/`READLATER_TTS_REGION`)
 - **Table of contents**, reading-progress bar, and per-browser resume-where-you-left-off
 - **Reading list** with excerpts, archive dates, read/unread, and delete
 - **Offline-friendly PWA** — visited articles stay readable without a network
