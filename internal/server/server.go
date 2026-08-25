@@ -43,6 +43,8 @@ type Server struct {
 	mu       sync.Mutex
 	inflight map[int64]bool // article ids with a fetch worker running
 	pruning  bool           // media GC single-flight flag
+
+	tts ttsServer
 }
 
 func New(store *db.Store, mediaDir string) *Server {
@@ -76,6 +78,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /article/{id}/read", s.handleToggleRead)
 	mux.HandleFunc("POST /article/{id}/delete", s.handleDelete)
 	mux.HandleFunc("POST /article/{id}/retry", s.handleRetry)
+	mux.HandleFunc("GET /article/{id}/tts", s.handleTTS)
 
 	mux.HandleFunc("GET /manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
@@ -366,7 +369,7 @@ func (s *Server) handleReader(w http.ResponseWriter, r *http.Request) {
 			}
 			a.Read = true
 		}
-		s.render(w, "reader.html", map[string]any{"A": a})
+		s.render(w, "reader.html", map[string]any{"A": a, "TTSEnabled": s.tts.config().Enabled()})
 	}
 }
 
@@ -432,6 +435,70 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/article/%d", id), http.StatusSeeOther)
+}
+
+// handleTTS streams the article as mp3 through Azure Neural TTS. The first
+// chunk is synthesized before headers are written so auth/network failures
+// surface as a clean HTTP error instead of a truncated audio file; the rest
+// stream progressively for immediate playback. Same-origin/guarded like the
+// other routes.
+func (s *Server) handleTTS(w http.ResponseWriter, r *http.Request) {
+	cfg := s.tts.config()
+	if !cfg.Enabled() {
+		http.Error(w, "text-to-speech is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a, err := s.store.Get(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+		} else {
+			log.Printf("tts get article %d: %v", id, err)
+			http.Error(w, "database error", http.StatusInternalServerError)
+		}
+		return
+	}
+	text := strings.TrimSpace(a.TextContent)
+	if text == "" {
+		text = strings.TrimSpace(a.Excerpt)
+	}
+	if text == "" {
+		http.Error(w, "no readable text", http.StatusUnprocessableEntity)
+		return
+	}
+	chunks := sentenceChunks(text)
+	if len(chunks) == 0 {
+		http.Error(w, "no readable text", http.StatusUnprocessableEntity)
+		return
+	}
+	voice := voiceForText(text, cfg.Voice)
+
+	first, err := synthChunk(cfg, chunks[0], voice)
+	if err != nil {
+		log.Printf("tts first chunk %d: %v", id, err)
+		http.Error(w, "text-to-speech failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "audio/mpeg")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("X-Accel-Buffering", "no") // stream, don't buffer
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(first)
+	for _, chunk := range chunks[1:] {
+		audio, err := synthChunk(cfg, chunk, voice)
+		if err != nil {
+			log.Printf("tts chunk %d: %v", id, err)
+			return // client already has audio; stop quietly
+		}
+		if _, err := w.Write(audio); err != nil {
+			return
+		}
+	}
 }
 
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {

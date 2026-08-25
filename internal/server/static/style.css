@@ -371,3 +371,6 @@ html.theme-dark   { --bg: #1a1a1a; --fg: #e6e6e6; --muted: #999; --card: #242424
   animation: gostash-spin 0.8s linear infinite;
 }
 @keyframes gostash-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Read aloud (TTS) ---------- */
+#tts-btn.tts-playing { background: var(--accent); color: #fff; }

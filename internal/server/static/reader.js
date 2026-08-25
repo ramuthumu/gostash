@@ -420,6 +420,49 @@
     });
   }
 
+  // ---------- Read aloud (TTS) ----------
+  var ttsBtn = document.getElementById("tts-btn");
+  var ttsAudio = null;
+
+  function stopTTS() {
+    if (ttsAudio) {
+      ttsAudio.pause();
+      ttsAudio.src = "";
+      ttsAudio = null;
+    }
+    if (ttsBtn) {
+      ttsBtn.textContent = "🔊 Listen";
+      ttsBtn.classList.remove("tts-playing");
+    }
+  }
+
+  if (ttsBtn) {
+    ttsBtn.addEventListener("click", function () {
+      if (ttsAudio) {
+        stopTTS();
+        return;
+      }
+      // Speed reader and TTS both take over the article; never both at once.
+      if (overlay && !overlay.hidden) {
+        close();
+      }
+      var id = readerContainer ? readerContainer.dataset.articleId : "";
+      if (!id) return;
+      ttsBtn.textContent = "⏹ Stop";
+      ttsBtn.classList.add("tts-playing");
+      ttsAudio = new Audio("/article/" + id + "/tts");
+      ttsAudio.addEventListener("ended", stopTTS);
+      ttsAudio.addEventListener("error", function () {
+        showToast("Could not start audio.");
+        stopTTS();
+      });
+      ttsAudio.play().catch(function () {
+        showToast("Playback blocked — try again.");
+        stopTTS();
+      });
+    });
+  }
+
   // ---------- init ----------
   applyPrefs();
   restoreScrollPosition();
