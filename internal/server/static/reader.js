@@ -428,7 +428,6 @@
   // playing in the background.
   var ttsBtn = document.getElementById("tts-btn");
   var ttsAudio = null; // server mode
-  var ttsUtter = null; // local mode
 
   function ttsMode() { return ttsBtn ? (ttsBtn.dataset.mode || "local") : "local"; }
 
@@ -441,11 +440,25 @@
     if (window.speechSynthesis) {
       speechSynthesis.cancel();
     }
-    ttsUtter = null;
     if (ttsBtn) {
       ttsBtn.textContent = "🔊 Listen";
       ttsBtn.classList.remove("tts-playing");
     }
+  }
+
+  // SpeechSynthesis voices load asynchronously; speaking before they arrive
+  // leaves the queue stuck "pending" with no audio (Chromium/WebKit quirk —
+  // audio can sit silent for minutes before recovering). Resolve as soon as
+  // voices are ready, or after a short timeout so a voice-less environment
+  // still speaks with the default voice.
+  function whenVoicesReady() {
+    return new Promise(function (resolve) {
+      if (window.speechSynthesis.getVoices().length > 0) { resolve(); return; }
+      var done = false;
+      var finish = function () { if (!done) { done = true; resolve(); } };
+      window.speechSynthesis.addEventListener("voiceschanged", finish);
+      setTimeout(finish, 700);
+    });
   }
 
   // Script evidence identical in spirit to the server's voiceForText: a
@@ -481,33 +494,58 @@
     return null;
   }
 
+  // Sentence splitter without lookbehind (Safari < 16.4 rejects it).
+  function ttsChunks(text) {
+    var out = [];
+    var cur = "";
+    var push = function (s) { s = s.trim(); if (s) out.push(s); };
+    for (var i = 0; i < text.length; i++) {
+      cur += text[i];
+      if (text[i] === "." || text[i] === "!" || text[i] === "?" || text[i] === "।" || text[i] === "\n") {
+        if (i + 1 < text.length && text[i + 1] === " ") i++; // keep one space
+        push(cur);
+        cur = "";
+      }
+    }
+    push(cur);
+    return out;
+  }
+
   function speakLocal(text) {
     if (!window.speechSynthesis) {
       showToast("This browser has no speech support.");
       stopTTS();
       return;
     }
-    var lang = guessLang(text);
-    var voices = window.speechSynthesis.getVoices();
-    var voice = pickVoice(lang, voices);
-    var chunks = text.split(/(?<=[.!?।\n])\s+/).filter(function (s) { return s.trim().length > 0; });
-    var last = chunks.length - 1;
-    chunks.forEach(function (chunk, idx) {
-      var u = new SpeechSynthesisUtterance(chunk);
-      if (voice) u.voice = voice;
-      u.lang = voice ? voice.lang : (lang === "en" ? "en-US" : lang);
-      u.rate = 1.0;
-      u.pitch = 1.0;
-      u.onerror = function (e) {
-        if (e.error && e.error !== "canceled" && e.error !== "interrupted") {
-          showToast("Speech error: " + e.error);
-          stopTTS();
-        }
+    whenVoicesReady().then(function () {
+      if (!ttsBtn || ttsBtn.textContent !== "⏹ Stop") return; // stopped while waiting
+      var lang = guessLang(text);
+      var voices = window.speechSynthesis.getVoices();
+      var voice = pickVoice(lang, voices);
+      var chunks = ttsChunks(text);
+      if (!chunks.length) { showToast("No readable text to read aloud."); stopTTS(); return; }
+      // Chain utterances onend -> next: iOS drops queued utterances after
+      // the first, and chaining also survives the Chromium stall.
+      var idx = 0;
+      var sayNext = function () {
+        if (!ttsBtn || ttsBtn.textContent !== "⏹ Stop") return; // stopped
+        if (idx >= chunks.length) { stopTTS(); return; }
+        var u = new SpeechSynthesisUtterance(chunks[idx++]);
+        if (voice) u.voice = voice;
+        u.lang = voice ? voice.lang : (lang === "en" ? "en-US" : lang);
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        u.onend = sayNext;
+        u.onerror = function (e) {
+          if (e.error && e.error !== "canceled" && e.error !== "interrupted") {
+            showToast("Speech error: " + e.error);
+            stopTTS();
+          }
+        };
+        window.speechSynthesis.speak(u);
       };
-      if (idx === last) u.onend = stopTTS;
-      window.speechSynthesis.speak(u);
+      sayNext();
     });
-    ttsUtter = voice ? voice : null;
   }
 
   function startTTS() {
@@ -541,7 +579,7 @@
 
   if (ttsBtn) {
     ttsBtn.addEventListener("click", function () {
-      if (ttsAudio || ttsUtter || (window.speechSynthesis && window.speechSynthesis.speaking)) {
+      if (ttsBtn.textContent === "⏹ Stop") {
         stopTTS();
         return;
       }
