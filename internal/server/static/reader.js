@@ -36,6 +36,7 @@
 
   var content = document.getElementById("article-content");
   var sizeLabel = document.getElementById("font-size-label");
+  if (!content) return;
 
   function applyPrefs() {
     var fam = prefs.font || "vollkorn";
@@ -265,6 +266,8 @@
   var fsBtn = document.getElementById("font-settings-btn");
   function setControlsOpen(open) {
     controlsEl.classList.toggle("collapsed", !open);
+    controlsEl.inert = !open;
+    if (open && tocMenu) tocMenu.open = false;
     if (fsBtn) fsBtn.setAttribute("aria-expanded", open ? "true" : "false");
   }
   if (fsBtn) {
@@ -291,46 +294,87 @@
   var articleId = readerContainer ? readerContainer.dataset.articleId : null;
   var SCROLL_KEY_PREFIX = "readlater.scroll.";
 
-  function updateReadingProgress() {
-    var docHeight = document.documentElement.scrollHeight - window.innerHeight;
-    var y = window.scrollY || 0;
-    var pct = docHeight > 0 ? Math.min(100, Math.max(0, (y / docHeight) * 100)) : 0;
-    if (progressFill) {
-      progressFill.style.width = pct + "%";
-    }
-    if (articleId && docHeight > 0) {
-      try {
-        localStorage.setItem(SCROLL_KEY_PREFIX + articleId, JSON.stringify({
-          y: Math.round(y),
-          pct: Math.round(pct),
-          updatedAt: Date.now()
-        }));
-      } catch (e) {}
-    }
+  var scrollRange = 0;
+  var scrollFrame = null;
+  var saveTimer = null;
+  var canSavePosition = false;
+  var userInteracted = false;
+
+  function measureReadingArea() {
+    scrollRange = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    var top = document.querySelector(".reader-top");
+    if (top) content.style.setProperty("--reader-toolbar-height", top.offsetHeight + "px");
+    queueReadingProgress();
   }
 
-  var scrollTimer = null;
+  function updateReadingProgress() {
+    var fraction = scrollRange > 0 ? Math.min(1, Math.max(0, window.scrollY / scrollRange)) : 0;
+    if (progressFill) progressFill.style.transform = "scaleX(" + fraction + ")";
+  }
+
+  function queueReadingProgress() {
+    if (scrollFrame !== null) return;
+    scrollFrame = requestAnimationFrame(function () {
+      scrollFrame = null;
+      updateReadingProgress();
+    });
+  }
+
+  function saveScrollPosition() {
+    clearTimeout(saveTimer);
+    if (!canSavePosition || !articleId || scrollRange <= 0) return;
+    try {
+      localStorage.setItem(SCROLL_KEY_PREFIX + articleId, JSON.stringify({
+        y: Math.round(window.scrollY),
+        pct: Math.round(Math.min(100, Math.max(0, window.scrollY / scrollRange * 100))),
+        updatedAt: Date.now()
+      }));
+    } catch (e) {}
+  }
+
+  // The scroll path only schedules a transform. Storage is synchronous, so
+  // persist once scrolling has settled, or immediately when leaving the page.
   window.addEventListener("scroll", function () {
-    if (!scrollTimer) {
-      scrollTimer = requestAnimationFrame(function () {
-        updateReadingProgress();
-        scrollTimer = null;
-      });
-    }
+    queueReadingProgress();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveScrollPosition, 250);
   }, { passive: true });
+  window.addEventListener("pagehide", saveScrollPosition);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) saveScrollPosition();
+  });
+  window.addEventListener("resize", measureReadingArea, { passive: true });
+  window.addEventListener("pageshow", measureReadingArea);
+  if (window.ResizeObserver) {
+    var sizeObserver = new ResizeObserver(measureReadingArea);
+    sizeObserver.observe(document.body);
+    sizeObserver.observe(content);
+    sizeObserver.observe(document.querySelector(".reader-top"));
+  }
+  // Never pull the reader back to a saved location after they start interacting.
+  ["wheel", "touchstart", "pointerdown", "keydown"].forEach(function (event) {
+    window.addEventListener(event, function () { userInteracted = true; }, { passive: true, once: true });
+  });
 
   function restoreScrollPosition() {
-    if (!articleId) return;
-    try {
-      var saved = JSON.parse(localStorage.getItem(SCROLL_KEY_PREFIX + articleId));
-      if (saved && saved.y > 120 && saved.pct < 98) {
-        requestAnimationFrame(function () {
-          window.scrollTo({ top: saved.y, behavior: "instant" });
-          updateReadingProgress();
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SCROLL_KEY_PREFIX + articleId)); } catch (e) {}
+    var navigation = performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : null;
+    var nativeRestore = location.hash || (navigation && navigation.type === "back_forward");
+    // Font changes affect article height; wait for the initial font layout before
+    // resuming. Browser history and explicit section links take precedence.
+    var fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
+    Promise.race([fontsReady, new Promise(function (resolve) { setTimeout(resolve, 1000); })]).then(function () {
+      requestAnimationFrame(function () {
+        measureReadingArea();
+        if (!nativeRestore && !userInteracted && window.scrollY === 0 && saved && saved.y > 120 && saved.pct < 98) {
+          window.scrollTo({ top: Math.min(saved.y, scrollRange), behavior: "instant" });
           showToast("Resumed from " + saved.pct + "%");
-        });
-      }
-    } catch (e) {}
+        }
+        canSavePosition = true;
+        queueReadingProgress();
+      });
+    });
   }
 
   function showToast(msg) {
@@ -345,78 +389,24 @@
     }, 2400);
   }
 
-  // ---------- Table of Contents (Outline) ----------
-  var tocBtn = document.getElementById("toc-btn");
+  // ---------- Server-rendered table of contents ----------
   var tocMenu = document.getElementById("toc-menu");
-  var tocList = document.getElementById("toc-list");
-  var tocClose = document.getElementById("toc-close");
-
-  function setTocOpen(open) {
-    if (!tocMenu) return;
-    tocMenu.classList.toggle("collapsed", !open);
-    if (tocBtn) tocBtn.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open && controlsEl) setControlsOpen(false);
-  }
-
-  function initTableOfContents() {
-    if (!content || !tocBtn || !tocMenu || !tocList) return;
-    var headings = content.querySelectorAll("h1, h2, h3, h4");
-    if (headings.length < 2) {
-      tocBtn.hidden = true;
-      return;
-    }
-
-    tocList.innerHTML = "";
-    headings.forEach(function (h, i) {
-      if (!h.id) {
-        var slug = h.textContent.trim().toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
-        h.id = slug ? "sec-" + slug + "-" + i : "section-" + (i + 1);
-      }
-      var li = document.createElement("li");
-      var tag = h.tagName.toLowerCase();
-      li.className = "toc-item toc-" + tag;
-      var a = document.createElement("a");
-      a.href = "#" + h.id;
-      a.textContent = h.textContent.trim() || ("Section " + (i + 1));
-      a.addEventListener("click", function (e) {
-        e.preventDefault();
-        setTocOpen(false);
-        var target = document.getElementById(h.id);
-        if (target) {
-          target.scrollIntoView({
-            behavior: "smooth",
-            block: "start"
-          });
-        }
-      });
-      li.appendChild(a);
-      tocList.appendChild(li);
+  if (tocMenu) {
+    tocMenu.addEventListener("toggle", function () {
+      if (tocMenu.open) setControlsOpen(false);
     });
-
-    tocBtn.hidden = false;
-
-    if (tocClose) {
-      tocClose.addEventListener("click", function () {
-        setTocOpen(false);
-      });
-    }
-
-    tocBtn.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      setTocOpen(tocMenu.classList.contains("collapsed"));
-    });
-
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !tocMenu.classList.contains("collapsed")) {
-        setTocOpen(false);
+    tocMenu.addEventListener("click", function (e) {
+      if (e.target.closest("a[href^='#']")) {
+        tocMenu.open = false;
+        setControlsOpen(false);
+        // Native fragment navigation updates the URL and honors reduced motion.
       }
     });
-
     document.addEventListener("click", function (e) {
-      if (tocMenu.classList.contains("collapsed")) return;
-      if (tocMenu.contains(e.target) || (tocBtn && tocBtn.contains(e.target))) return;
-      setTocOpen(false);
+      if (!tocMenu.contains(e.target)) tocMenu.open = false;
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") tocMenu.open = false;
     });
   }
 
@@ -591,5 +581,5 @@
   applyPrefs();
   restoreScrollPosition();
   updateReadingProgress();
-  initTableOfContents();
+  measureReadingArea();
 })();

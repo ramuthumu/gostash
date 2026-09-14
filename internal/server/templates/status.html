@@ -1,0 +1,14 @@
+{{define "archive-status"}}
+<div id="archive-status" class="status-card {{if eq .A.Status "failed"}}failed{{end}}"
+     {{if eq .A.Status "pending"}}hx-get="/article/{{.A.ID}}/status" hx-trigger="every 2s" hx-swap="outerHTML show:none"{{end}} role="status">
+  {{if eq .A.Status "pending"}}
+    <span class="spinner" aria-hidden="true"></span>
+    <p>Archiving this page&hellip; usually a few seconds.</p>
+    <p><a href="/article/{{.A.ID}}">Check progress</a> · <a href="{{.A.URL}}" target="_blank" rel="noopener">Open the original ↗</a></p>
+  {{else}}
+    <p>⚠️ Archiving failed:</p>
+    <pre class="fetch-error">{{.A.FetchError}}</pre>
+    <form method="POST" action="/article/{{.A.ID}}/retry"><button type="submit">Try again</button></form>
+  {{end}}
+</div>
+{{end}}

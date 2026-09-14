@@ -1,0 +1,69 @@
+{{define "library"}}
+<div id="library" hx-target="#library" hx-swap="outerHTML show:none" hx-sync="this:replace">
+  <section class="controls-row" aria-label="Filter articles">
+    <nav class="filter-tabs" aria-label="Reading status">
+      <a href="/?filter=unread{{if .Query}}&q={{.Query}}{{end}}" hx-get="/partials/list?filter=unread{{if .Query}}&q={{urlquery .Query}}{{end}}" class="tab {{if eq .Filter "unread"}}active{{end}}">
+        Unread <span class="badge">{{.Counts.Unread}}</span>
+      </a>
+      <a href="/?filter=archive{{if .Query}}&q={{.Query}}{{end}}" hx-get="/partials/list?filter=archive{{if .Query}}&q={{urlquery .Query}}{{end}}" class="tab {{if eq .Filter "archive"}}active{{end}}">
+        Archive <span class="badge">{{.Counts.Archive}}</span>
+      </a>
+      <a href="/?filter=all{{if .Query}}&q={{.Query}}{{end}}" hx-get="/partials/list?filter=all{{if .Query}}&q={{urlquery .Query}}{{end}}" class="tab {{if eq .Filter "all"}}active{{end}}">
+        All <span class="badge">{{.Counts.Total}}</span>
+      </a>
+    </nav>
+
+    <form method="GET" action="/" class="search-form" hx-get="/partials/list">
+      <input type="hidden" name="filter" value="{{.Filter}}">
+      <input id="article-search" aria-label="Search articles" type="search" name="q" value="{{.Query}}" placeholder="Search articles…" autocomplete="off">
+      <button type="submit" aria-label="Search">🔍</button>
+      {{if .Query}}
+        <a href="/?filter={{.Filter}}" hx-get="/partials/list?filter={{.Filter}}" class="clear-search" title="Clear search">✕</a>
+      {{end}}
+    </form>
+  </section>
+
+  <section class="list">
+    {{if not .Articles}}
+      {{if .Query}}
+        <p class="empty">No articles found matching "{{.Query}}". <a href="/?filter={{.Filter}}" hx-get="/partials/list?filter={{.Filter}}">Clear search</a></p>
+      {{else if eq .Filter "archive"}}
+        <p class="empty">No archived articles yet.</p>
+      {{else}}
+        <p class="empty">Nothing in unread. Paste a URL above to get started.</p>
+      {{end}}
+    {{else}}
+      <ul>
+      {{range .Articles}}
+        <li id="article-{{.ID}}" class="{{if .Read}}read{{else}}unread{{end}}">
+          <a class="title" href="/article/{{.ID}}">{{if .Title}}{{.Title}}{{else}}{{if eq .Status "pending"}}Archiving {{end}}{{.URL}}{{end}}</a>
+          {{if eq .Status "pending"}}<span class="status-chip pending">archiving…</span>{{else if eq .Status "failed"}}<a class="status-chip failed" href="/article/{{.ID}}" title="{{.FetchError}}">failed — retry</a>{{end}}
+          <span class="meta">
+            <a class="orig" href="{{.URL}}" target="_blank" rel="noopener">original ↗</a>
+            · {{.ArchivedAt.Format "Jan 2, 2006"}}
+            {{if .WordCount}}
+              · <span class="reading-time">{{.ReadingTimeMinutes}} min read</span>
+              · <span class="word-count">{{.WordCount}} words</span>
+            {{end}}
+          </span>
+          {{if .Excerpt}}<p class="excerpt">{{.Excerpt}}</p>{{end}}
+          <form class="row-actions" method="POST" action="/article/{{.ID}}/read" hx-post="/article/{{.ID}}/read">
+            <input type="hidden" name="filter" value="{{$.Filter}}">
+            <input type="hidden" name="q" value="{{$.Query}}">
+            <button type="submit">{{if .Read}}Mark unread{{else}}Mark read{{end}}</button>
+          </form>
+          <form class="row-actions" method="POST" action="/article/{{.ID}}/delete" hx-post="/article/{{.ID}}/delete" hx-confirm="Delete this article?"
+                onsubmit="if (!window.htmx) return confirm('Delete this article?');">
+            <input type="hidden" name="filter" value="{{$.Filter}}">
+            <input type="hidden" name="q" value="{{$.Query}}">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+        </li>
+      {{end}}
+      </ul>
+    {{end}}
+  </section>
+
+<p class="request-error" role="status" hidden>Could not update the list. Please try again.</p>
+</div>
+{{end}}

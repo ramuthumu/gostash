@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .A.Title}}{{.A.Title}}{{else}}Article{{end}} · Read Later</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=4">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 <script>
 (function(){try{var p=JSON.parse(localStorage.getItem("readlater.reader.prefs"))||{};if(p.theme)document.documentElement.className="theme-"+p.theme;}catch(e){}})();
 </script>
 <script src="/static/theme.js" defer></script>
+{{if eq .A.Status "pending"}}<script src="/static/vendor/htmx.min.js" defer></script>{{end}}
 </head>
 <body>
 <div class="reader" data-article-id="{{.A.ID}}">
@@ -22,24 +23,24 @@
     <a class="back" href="/">← Reading list</a>
     <span class="reader-actions">
       <a class="orig" href="{{.A.URL}}" target="_blank" rel="noopener">View original ↗</a>
-      <button id="toc-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Table of contents" aria-label="Table of contents" hidden>📑 Outline</button>
-      <button id="rsvp-open" type="button" title="Speed read (RSVP)" aria-label="Speed read">⚡ Speed read</button>
-      <button id="tts-btn" type="button" data-mode="{{if .TTSEnabled}}server{{else}}local{{end}}" title="Listen to this article" aria-label="Listen to this article">🔊 Listen</button>
-      <button id="font-settings-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Font settings" aria-label="Font settings">Aa</button>
+      {{if .Outline}}
+      <details class="toc-dropdown" id="toc-menu">
+        <summary id="toc-btn" title="Table of contents">📑 Outline</summary>
+        <nav class="toc-menu" aria-label="Table of contents">
+          <ul class="toc-list" id="toc-list">
+          {{range .Outline}}<li class="toc-item toc-{{.Level}}"><a href="#{{.ID}}">{{.Title}}</a></li>{{end}}
+          </ul>
+        </nav>
+      </details>
+      {{end}}
+      <button id="rsvp-open" type="button" title="Speed read (RSVP)" aria-label="Speed read" class="js-control" {{if ne .A.Status "ready"}}hidden{{end}}>⚡ Speed read</button>
+      <button id="tts-btn" type="button" data-mode="{{if .TTSEnabled}}server{{else}}local{{end}}" title="Listen to this article" aria-label="Listen to this article" class="js-control" {{if ne .A.Status "ready"}}hidden{{end}}>🔊 Listen</button>
+      <button id="font-settings-btn" type="button" aria-expanded="false" aria-haspopup="true" title="Font settings" aria-label="Font settings" class="js-control" {{if ne .A.Status "ready"}}hidden{{end}}>Aa</button>
     </span>
   </header>
 
-  <!-- Table of contents dropdown (hidden by default) -->
-  <nav class="toc-menu collapsed" id="toc-menu" aria-label="Table of contents">
-    <div class="toc-header">
-      <span class="toc-title">Table of Contents</span>
-      <button id="toc-close" type="button" aria-label="Close outline">✕</button>
-    </div>
-    <ul class="toc-list" id="toc-list"></ul>
-  </nav>
-
   <!-- Reading controls bar (hidden until the Aa button is clicked) -->
-  <div class="controls collapsed" id="controls">
+  <div class="controls collapsed" id="controls" inert>
     <label class="ctrl">
       <span>Font</span>
       <select id="font-family">
@@ -85,29 +86,15 @@
 
   <article>
     <h1 class="article-title">{{if .A.Title}}{{.A.Title}}{{else}}{{.A.URL}}{{end}}</h1>
-    {{if eq .A.Status "pending"}}
+    {{if or (eq .A.Status "pending") (eq .A.Status "failed")}}
     <p class="source">{{.A.URL}}</p>
-    <div class="status-card">
-      <span class="spinner" aria-hidden="true"></span>
-      <p>Archiving this page&hellip; usually a few seconds.</p>
-      <p><a href="{{.A.URL}}" target="_blank" rel="noopener">Open the original ↗</a></p>
-    </div>
-    <script>setTimeout(function () { location.reload(); }, 800);</script>
-    {{else if eq .A.Status "failed"}}
-    <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}</p>
-    <div class="status-card failed">
-      <p>⚠️ Archiving failed:</p>
-      <pre class="fetch-error">{{.A.FetchError}}</pre>
-      <form method="POST" action="/article/{{.A.ID}}/retry">
-        <button type="submit">Try again</button>
-      </form>
-    </div>
+    {{template "archive-status" .}}
     {{else}}
     {{if .A.Author}}<p class="byline">{{.A.Author}}</p>{{end}}
     <p class="source">{{.A.URL}} · archived {{.A.ArchivedAt.Format "Jan 2, 2006"}}{{if .A.WordCount}} · <span class="reading-time">{{.A.ReadingTimeMinutes}} min read</span> · <span class="word-count">{{.A.WordCount}} words</span>{{end}}</p>
 
     <div class="article-content" id="article-content">
-      {{if .A.ContentHTML}}{{proxyImgs .A.ContentHTML}}{{else}}
+      {{if .A.ContentHTML}}{{.Content}}{{else}}
         {{if .A.TextContent}}<pre class="fallback-text">{{.A.TextContent}}</pre>{{else}}
           <p class="empty">No readable content could be extracted from this page.</p>
         {{end}}
@@ -127,6 +114,7 @@
   </footer>
 </div>
 
+<noscript><style>.js-control { display: none; }</style></noscript>
 <!-- Speed reader overlay -->
 <div class="rsvp-overlay" id="rsvp-overlay" hidden>
   <div class="rsvp-box">
@@ -144,7 +132,7 @@
   </div>
 </div>
 
-<script src="/static/reader.js" defer></script>
+{{if eq .A.Status "ready"}}<script src="/static/reader.js?v=4" defer></script>{{end}}
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {

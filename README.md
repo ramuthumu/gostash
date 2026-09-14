@@ -23,7 +23,11 @@ Built in Go. No external services, no tracking, no signup.
 - **Read aloud** — natural device voices by default (Siri on iPhone, macOS
   system voices; no setup); optional Azure Neural upgrade for background
   playback (`READLATER_TTS_KEY`/`READLATER_TTS_REGION`)
-- **Table of contents**, reading-progress bar, and per-browser resume-where-you-left-off
+- **Server-rendered pages and outline**, with HTMX fragments for filters, search,
+  and row actions; ordinary links and forms work without JavaScript
+- **Smooth reader scrolling** — native scrolling, a transform-based progress bar,
+  reading-position saves after scrolling settles, and controls that do not move
+  the article; section navigation respects reduced-motion settings
 - **Reading list** with excerpts, archive dates, read/unread, and delete
 - **Offline-friendly PWA** — visited articles stay readable without a network
 - **SQLite storage** — everything in one file, no server to run
@@ -53,7 +57,8 @@ READLATER_ADDR=:9000 READLATER_DATA=./data go run .
 ### Archiving lifecycle
 
 1. You submit a URL (form, bookmarklet, or share target). The article row is
-   created immediately and the reader page polls until it's ready.
+   created immediately and a small status fragment polls until it's ready; the
+   completed reader then loads once. Without JavaScript, use **Check progress**.
 2. A background worker fetches the page with a normal browser User-Agent.
 3. [go-readability](https://github.com/go-shiori/go-readability) (a Go port of
    Mozilla's Readability.js, the engine behind Firefox Reader View) extracts the
@@ -107,8 +112,26 @@ gostash/
 | HTTP / routing     | `net/http` (Go 1.22+ path patterns)                 |
 | Content extraction | `github.com/go-shiori/go-readability`               |
 | Storage            | SQLite via `modernc.org/sqlite` (pure Go, no CGO)   |
-| Frontend           | Server-rendered HTML templates + vanilla JS/CSS     |
+| Frontend           | Go HTML templates + vendored HTMX 2.0.4 + vanilla JS/CSS |
 | Asset bundling     | `go:embed`                                          |
+
+## Rendering and scrolling
+
+The full reading list is served at `/`; `/partials/list` renders the same library
+fragment for filters, search, and read/delete actions. Filter/search state stays
+in the URL, so links, browser history, and form fallbacks work normally. Article
+HTML and the outline anchors are generated together on the server after sanitization.
+`/article/{id}/status` polls a status card while archiving instead of repeatedly
+reloading the document. HTMX is vendored under `static/vendor/` with its license.
+
+The reader keeps native touch/wheel scrolling. Scroll frames update only the
+progress-bar transform; synchronous position storage is deferred until scrolling
+stops and flushed when leaving. Saved-position restoration waits for initial font
+layout and yields to user interaction, explicit section links, and browser history.
+The outline and font settings float over the article without changing its layout.
+
+Run `go test ./...` for server rendering, archive lifecycle, form fallback, and
+content sanitization checks.
 
 ## Limitations / roadmap
 

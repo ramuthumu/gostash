@@ -9,6 +9,11 @@
   --maxw: 720px;
 }
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; scrollbar-gutter: stable; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -133,8 +138,8 @@ body.theme-dark .bookmarklet {
   background: transparent; overflow: hidden;
 }
 .reading-progress-fill {
-  height: 100%; width: 0%; background: var(--accent);
-  transition: width 0.1s linear;
+  height: 100%; width: 100%; background: var(--accent);
+  transform: scaleX(0); transform-origin: left center;
 }
 .reader-toast {
   position: fixed; bottom: 2rem; right: 2rem; background: var(--card);
@@ -201,7 +206,7 @@ body.theme-dark .bookmarklet {
 .article-content { font-size: 1.25rem; line-height: 1.75; }
 .article-content p { margin: 0 0 1.1rem; }
 .article-content h1, .article-content h2, .article-content h3, .article-content h4 {
-  scroll-margin-top: 80px;
+  scroll-margin-top: calc(var(--reader-toolbar-height, 80px) + 1rem);
 }
 .article-content h2 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
 .article-content h3 { font-size: 1.25rem; margin: 1.5rem 0 0.5rem; }
@@ -236,22 +241,11 @@ body.theme-dark .bookmarklet {
   border-radius: 10px;
   padding: 0.6rem 0.9rem;
   margin: 0.5rem 0 0;
-  transition: max-height 0.26s ease, opacity 0.22s ease, margin 0.26s ease,
-              padding 0.26s ease, border-width 0.26s ease;
-  max-height: 320px;
+  position: absolute; top: 100%; right: 0; left: 0;
+  max-height: 65vh; overflow-y: auto;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.12);
 }
-.controls.collapsed {
-  max-height: 0;
-  margin-top: 0;
-  margin-bottom: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-top-width: 0;
-  border-bottom-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
+.controls.collapsed { display: none; }
 .controls .ctrl { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
 .controls .ctrl > span:first-child { font-weight: 600; color: var(--fg); }
 .controls .ctrl.right { margin-left: auto; }
@@ -374,3 +368,30 @@ html.theme-dark   { --bg: #1a1a1a; --fg: #e6e6e6; --muted: #999; --card: #242424
 
 /* ---------- Read aloud (TTS) ---------- */
 #tts-btn.tts-playing { background: var(--accent); color: #fff; }
+
+/* Native document scrolling, with controls that do not reflow the article. */
+.reader-top { margin-bottom: 1.5rem; }
+.reader-header { flex-wrap: wrap; gap: 0.5rem; }
+.reader-actions { flex-wrap: wrap; gap: 0.5rem; }
+.reader-actions .toc-dropdown { position: relative; }
+.toc-dropdown summary {
+  list-style: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.15rem 0.55rem; font-size: 0.85rem; cursor: pointer;
+}
+.toc-dropdown summary::-webkit-details-marker { display: none; }
+.toc-dropdown[open] summary { border-color: var(--accent); color: var(--accent); }
+.article-content, .article-title, .source, .list .title, .list .excerpt { overflow-wrap: anywhere; }
+.article-content table { display: block; max-width: 100%; overflow-x: auto; }
+.add input { min-width: 0; color: var(--fg); }
+.request-error { color: var(--danger); }
+.htmx-request button { opacity: 0.65; }
+@media (max-width: 600px) {
+  .container, .reader { padding-left: 1rem; padding-right: 1rem; }
+  .reader-actions { width: 100%; }
+  .reader-actions .toc-dropdown { position: static; }
+  .toc-menu { max-width: 100%; }
+  .article-title { font-size: 1.65rem; }
+  .search-form { width: 100%; }
+  .search-form input[type="search"], .search-form input[type="search"]:focus { width: auto; min-width: 0; flex: 1; }
+  .filter-tabs { flex-wrap: wrap; }
+}

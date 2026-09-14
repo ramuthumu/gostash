@@ -70,11 +70,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleList)
+	mux.HandleFunc("GET /partials/list", s.handleList)
 	mux.HandleFunc("POST /", s.handleSubmit)
 	mux.HandleFunc("GET /save", s.handleSaveBookmarklet)
 	mux.HandleFunc("GET /media/{file}", s.handleMedia)
 	mux.HandleFunc("GET /img", s.handleImageProxy)
 	mux.HandleFunc("GET /article/{id}", s.handleReader)
+	mux.HandleFunc("GET /article/{id}/status", s.handleArticleStatus)
 	mux.HandleFunc("POST /article/{id}/read", s.handleToggleRead)
 	mux.HandleFunc("POST /article/{id}/delete", s.handleDelete)
 	mux.HandleFunc("POST /article/{id}/retry", s.handleRetry)
@@ -164,13 +166,13 @@ func logRequests(h http.Handler) http.Handler {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path != "/" && r.URL.Path != "/partials/list" {
 		http.NotFound(w, r)
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	filter := strings.TrimSpace(r.URL.Query().Get("filter"))
-	if filter == "" {
+	if filter != db.FilterAll && filter != db.FilterArchive {
 		filter = db.FilterUnread
 	}
 	counts, err := s.store.Counts()
@@ -183,13 +185,44 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.render(w, "list.html", map[string]any{
+	name := "list.html"
+	if r.URL.Path == "/partials/list" {
+		name = "library"
+		w.Header().Set("HX-Push-Url", listURL(filter, q))
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, name, map[string]any{
 		"Articles":    articles,
 		"Counts":      counts,
 		"Filter":      filter,
 		"Query":       q,
 		"Bookmarklet": bookmarkletURL(r),
 	})
+}
+
+func listURL(filter, query string) string {
+	values := url.Values{"filter": {filter}}
+	if query != "" {
+		values.Set("q", query)
+	}
+	return "/?" + values.Encode()
+}
+
+// Render the library after row actions, keeping the active filter and search.
+// Plain forms still work through normal redirects when JavaScript is disabled.
+func (s *Server) afterListAction(w http.ResponseWriter, r *http.Request) {
+	filter, query := r.FormValue("filter"), r.FormValue("q")
+	if r.Header.Get("HX-Target") == "library" {
+		fragment := r.Clone(r.Context())
+		fragment.URL = &url.URL{Path: "/partials/list", RawQuery: url.Values{"filter": {filter}, "q": {query}}.Encode()}
+		s.handleList(w, fragment)
+		return
+	}
+	if filter == "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, listURL(filter, query), http.StatusSeeOther)
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
@@ -369,8 +402,35 @@ func (s *Server) handleReader(w http.ResponseWriter, r *http.Request) {
 			}
 			a.Read = true
 		}
-		s.render(w, "reader.html", map[string]any{"A": a, "TTSEnabled": s.tts.config().Enabled()})
+		body, outline := readerContent(a.ContentHTML)
+		s.render(w, "reader.html", map[string]any{"A": a, "Content": body, "Outline": outline, "TTSEnabled": s.tts.config().Enabled()})
 	}
+}
+
+// Poll a small status fragment while archiving; refresh the reader only once
+// when it is ready. Failed cards have no polling trigger and expose a retry form.
+func (s *Server) handleArticleStatus(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a, err := s.store.Get(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, "database error", http.StatusInternalServerError)
+		}
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if a.Status == db.StatusReady {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.render(w, "archive-status", map[string]any{"A": a})
 }
 
 func (s *Server) handleToggleRead(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +454,7 @@ func (s *Server) handleToggleRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	s.afterListAction(w, r)
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -409,7 +469,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go s.pruneMedia()
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	s.afterListAction(w, r)
 }
 
 // handleRetry re-enqueues a failed (or ready) article for a fresh fetch.

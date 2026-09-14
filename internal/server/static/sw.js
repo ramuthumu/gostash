@@ -1,9 +1,11 @@
 // GoStash Service Worker
-const CACHE_NAME = 'gostash-v3';
+const CACHE_NAME = 'gostash-v4';
 const STATIC_ASSETS = [
-  '/static/style.css',
+  '/static/style.css?v=4',
   '/static/theme.js',
-  '/static/reader.js',
+  '/static/reader.js?v=4',
+  '/static/library.js?v=4',
+  '/static/vendor/htmx.min.js',
   '/static/icon.svg',
   '/static/fonts/fonts.css',
   '/static/fonts/inter-latin-400700.woff2',
@@ -35,6 +37,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+  // Fragments and mutations must never become offline page-cache entries.
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin ||
+      url.pathname.startsWith('/partials/') || url.pathname.endsWith('/status')) return;
 
   // For fonts and immutable media: Cache-First
   if (url.pathname.startsWith('/media/') || url.pathname.startsWith('/static/fonts/')) {
