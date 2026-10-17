@@ -13,6 +13,7 @@
 # env
 .env
 .env.*
+gostash-auth.env
 
 # os
 .DS_Store

@@ -1,5 +1,5 @@
 // GoStash Service Worker
-const CACHE_NAME = 'gostash-v4';
+const CACHE_NAME = 'gostash-v5';
 const STATIC_ASSETS = [
   '/static/style.css?v=4',
   '/static/theme.js',
@@ -41,13 +41,18 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin ||
       url.pathname.startsWith('/partials/') || url.pathname.endsWith('/status')) return;
 
-  // For fonts and immutable media: Cache-First
-  if (url.pathname.startsWith('/media/') || url.pathname.startsWith('/static/fonts/')) {
+  // Archived article media remains private and must not enter an offline cache.
+  if (url.pathname.startsWith('/media/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+  // Public fonts are immutable and safe to cache.
+  if (url.pathname.startsWith('/static/fonts/')) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;
         return fetch(event.request).then((resp) => {
-          if (resp && resp.status === 200) {
+          if (resp && resp.status === 200 && !resp.headers.get('Cache-Control')?.includes('no-store')) {
             const copy = resp.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           }
@@ -63,7 +68,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         const fetchPromise = fetch(event.request).then((networkResp) => {
-          if (networkResp && networkResp.status === 200) {
+          if (networkResp && networkResp.status === 200 && !networkResp.headers.get('Cache-Control')?.includes('no-store')) {
             const copy = networkResp.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           }
@@ -81,7 +86,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).then((resp) => {
-        if (resp && resp.ok) {
+        if (resp && resp.ok && !resp.headers.get('Cache-Control')?.includes('no-store')) {
           const copy = resp.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         }

@@ -37,6 +37,13 @@ header h1 { margin: 0 0 1.5rem; font-size: 1.6rem; }
   margin: 0 0 1.5rem;
 }
 .container > header h1 { margin: 0; font-size: 1.6rem; }
+.header-actions { display: flex; align-items: center; gap: 0.5rem; }
+.header-actions form { margin: 0; }
+.header-actions form button {
+  padding: 0.3rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: none; color: var(--muted); font-size: 0.85rem; cursor: pointer;
+}
+.header-actions form button:hover { color: var(--fg); border-color: var(--accent); }
 #theme-toggle {
   background: none; border: 1px solid var(--border); border-radius: 6px;
   padding: 0.3rem 0.6rem; font-size: 1rem; line-height: 1; cursor: pointer;

@@ -39,6 +39,7 @@ type Server struct {
 	store    *db.Store
 	mediaDir string
 	tmpl     *template.Template
+	auth     AuthConfig
 
 	mu       sync.Mutex
 	inflight map[int64]bool // article ids with a fetch worker running
@@ -47,12 +48,16 @@ type Server struct {
 	tts ttsServer
 }
 
-func New(store *db.Store, mediaDir string) *Server {
+func New(store *db.Store, mediaDir string, auth ...AuthConfig) *Server {
 	t := template.Must(template.New("").Funcs(template.FuncMap{
 		"proxyImgs": proxyImgs,
 	}).ParseFS(templateFS, "templates/*.html"))
-	return &Server{store: store, mediaDir: mediaDir, tmpl: t,
+	s := &Server{store: store, mediaDir: mediaDir, tmpl: t,
 		inflight: make(map[int64]bool)}
+	if len(auth) > 0 {
+		s.auth = auth[0]
+	}
+	return s
 }
 
 // ListenAndServe resumes any fetches a previous crash left pending, then
@@ -69,6 +74,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", s.handleLogin)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /logout", s.handleLogout)
 	mux.HandleFunc("GET /", s.handleList)
 	mux.HandleFunc("GET /partials/list", s.handleList)
 	mux.HandleFunc("POST /", s.handleSubmit)
@@ -109,7 +117,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      securityHeaders(sameOrigin(logRequests(mux))),
+		Handler:      securityHeaders(sameOrigin(s.authMiddleware(logRequests(mux)))),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,

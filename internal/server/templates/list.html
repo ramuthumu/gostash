@@ -17,7 +17,10 @@
 <div class="container">
   <header>
     <h1>📑 Read Later</h1>
-    <button id="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">🌙</button>
+    <div class="header-actions">
+      <button id="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">🌙</button>
+      <form method="POST" action="/logout"><button type="submit">Sign out</button></form>
+    </div>
   </header>
 
   <section class="add">

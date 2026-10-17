@@ -9,6 +9,7 @@ User=gostash
 Group=gostash
 Environment=READLATER_ADDR=127.0.0.1:8090
 Environment=READLATER_DATA=/var/lib/gostash
+EnvironmentFile=/etc/gostash/auth.env
 ExecStart=/usr/local/bin/gostash
 Restart=on-failure
 RestartSec=3

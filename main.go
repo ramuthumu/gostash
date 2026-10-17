@@ -50,7 +50,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srv := server.New(store, mediaDir)
+	auth, err := server.AuthConfigFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	srv := server.New(store, mediaDir, auth)
 	log.Printf("gostash %s listening on http://%s", version, addr)
 	if err := srv.ListenAndServe(ctx, addr); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
